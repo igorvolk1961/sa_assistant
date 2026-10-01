@@ -1,8 +1,10 @@
-# План реализации: «Помощник системного аналитика» (sa_assistant)
+# План реализации: «Помощник системного аналитика» (sa_assistant) — v2
+
+> v2 учитывает ответы на открытые вопросы (фон — Procrastinate, хостинг — Beget.ru, источники записи — telemost.yandex и ПО онлайн-курсов, архив — только admin) и 30 новых требований (карточки сущностей, требования↔стейкхолдер↔задачи, подзадачи, файлы и комментарии).
 
 ## 1. Цель и контекст
 
-Продакшн-реди приложение для сопровождения системного аналитика: учёт проектов и персоний, ведение встреч с аудиозаписью и транскрибацией (live + batch, с диаризацией), LLM-анализ бесед, артефакты (View/Glossary/Use Case/User Story), постановка задач сбора информации сотрудникам (с DAG-зависимостями), формирование требований (BR/FR/NFR) и диаграмм C4/BPMN.
+Продакшн-реди приложение для сопровождения системного аналитика: учёт проектов, сотрудников и стейкхолдеров, встречи с аудиозаписью и транскрибацией (live + batch, с диаризацией), LLM-анализ бесед, артефакты, требования (BR/FR/NFR), задачи и подзадачи с файлами и комментариями, диаграммы C4/BPMN.
 
 Контекст: учебный курс по системному анализу с ролевыми играми. Роли воспроизводят саму игру: администратор, системный аналитик, сотрудник, гость (наблюдатель). В перспективе — основа общего командного проекта.
 
@@ -10,177 +12,199 @@
 
 ### 2.1 Стек
 - Backend: Python 3.12, FastAPI, SQLAlchemy 2 (async), Alembic, Pydantic v2.
-- БД: PostgreSQL. Realtime/кеш/сессии STT: Redis.
-- Фон: Celery или ARQ (выбрать ARQ, если не нужны сложные цепочки; Celery — если понадобятся периодические ретраи/beat).
+- БД: PostgreSQL. Realtime/кеш/сессии STT: Redis (pub/sub, буферы live-сессий). **Очередь фоновых задач: Procrastinate** (PostgreSQL-based, asyncio; отдельный брокер не нужен).
 - Realtime: WebSocket (транскрибация, уведомления, статусы задач).
-- Хранилище файлов: S3-совместимое (MinIO on-prem / Yandex Object Storage), presigned URLs.
-- Frontend: React + TypeScript (Vite), MediaRecorder для записи, bpmn-js для BPMN, рендер Structurizr DSL для C4.
-- Аудио-обработка: ffmpeg (конвертация/нарезка).
-- Провайдеры: абстракции `STTProvider` и `LLMProvider`; по умолчанию STT — Yandex SpeechKit, LLM — настраиваемый.
+- Хранилище файлов: S3-совместимое. **Хостинг: Beget.ru с Docker**; PostgreSQL и S3-совместимое хранилище разворачиваются внутри Docker.
+- Frontend: React + TypeScript (Vite), MediaRecorder, bpmn-js, рендер Structurizr DSL.
+- Аудио: ffmpeg.
+- Провайдеры: абстракции `STTProvider`/`LLMProvider`; STT по умолчанию — Yandex SpeechKit, LLM — настраиваемый.
 
 ### 2.2 Роли и доступ (per-project)
-- Роль задаётся **в рамках проекта** через участие (`project_memberships` + `membership_roles`).
-- Роли: `admin`, `system_analyst`, `employee`, `guest` (глобальный справочник).
-- У пользователя одна роль в проекте, **кроме пары `admin + system_analyst`** (разрешена).
-- Аналитик в проекте **ровно один**; admin может передать роль аналитика.
-- Админов может быть несколько. **Владелец** (`is_owner`) — неизменяем; снять с роли admin нельзя.
-- Гость не имеет участия и видит **все проекты со статусом `open`**, может комментировать везде; admin может удалять комментарии (soft-delete).
-- Доступ к `closed`/`archived` (архив) — у **любого admin** проекта.
-- Администратор только: назначает роли, редактирует глобальные справочники, настраивает проект. Действия аналитика доступны лишь при наличии роли `system_analyst`.
-- Регистрация: логин/пароль + обязательные ФИО (фамилия, имя, отчество). Новый пользователь — гость по умолчанию.
+- Роль задаётся **в рамках проекта** (`project_memberships` + `membership_roles`); роли: `admin`, `system_analyst`, `employee`, `guest`.
+- Одна роль в проекте, кроме пары `admin + system_analyst`.
+- Аналитик в проекте ровно один; admin может передать роль.
+- Админов может быть несколько; **владелец** (`is_owner`) неизменяем.
+- Гость не имеет участия и видит **все `open`-проекты**; комментирует везде (в т.ч. задачи); admin удаляет комментарии (soft-delete).
+- **Доступ к `closed`/`archived` — только у admin** (не у участников).
+- Администратор только: назначает роли, правит глобальные справочники, настраивает проект. Действия аналитика — только при роли `system_analyst`.
+- Регистрация: логин/пароль + обязательные ФИО. Новый пользователь — гость.
 
-### 2.3 Должности и типы стейкхолдеров
-- Каталог должностей **глобальный** и совпадает с каталогом типов стейкхолдеров.
-- Назначение должности пользователю — **в рамках проекта** (`membership_positions`).
-- Сотрудник/аналитик может иметь несколько должностей; аналитик может ставить задачи сам себе.
+### 2.3 Сотрудники и стейкхолдеры (новая модель акторов)
+- В проекте существуют две самостоятельные карточки актора, обе могут быть связаны с пользователем системы:
+  - **Сотрудник** (`employees`): исполнитель задач. Связь с пользователем опциональна. **Пользователю в рамках одного проекта соответствует ровно один сотрудник с теми же ФИО**; один сотрудник может совмещать несколько должностей. Задачи назначаются на сотрудника, а не на должность.
+  - **Стейкхолдер** (`stakeholders`): тип (должность) **обязателен**; связь с пользователем опциональна.
+- **Вакантная должность**: сотрудник без привязанного пользователя (`user_id IS NULL`). При удалении связи «пользователь↔сотрудник» задачи остаются за сотрудником, но **без исполнителя**.
+- **Абстрактный стейкхолдер**: стейкхолдер без пользователя (`user_id IS NULL`). Удаление связи «пользователь↔стейкхолдер» возвращает его в абстрактное состояние.
+- Сотрудник может иметь **несколько должностей** (`employee_positions`).
+- Назначение должности/статуса стейкхолдера пользователю выполняется **в рамках текущего проекта** и создаёт соответствующего сотрудника и/или стейкхолдера.
+- При создании пользователя его можно сразу связать с ранее созданным сотрудником или стейкхолдером.
+- Карточка сотрудника: общий список его задач и подзадач со статусом и признаком «задача/подзадача» (`parent_task_id IS NULL` vs не NULL); создание новой назначенной ему задачи; переход к карточкам задач.
+- Карточка стейкхолдера: создание связанных требований; переход к карточкам требований; переход к карточке пользователя.
 
-### 2.4 Задачи сбора информации
-- Задача может быть **без исполнителя**; список таких задач — ключевой экран аналитика.
-- Исполнителя можно переназначать; хранится история назначений.
-- Результат сдаётся текстом и/или вложением; версии результата сохраняются.
-- Отклонение аналитиком → возврат на доработку с обязательным комментарием.
-- Зависимости задач — DAG; задачи без выполненных предков недоступны к работе; распараллеливание определяется DAG.
+### 2.4 Требования → Задачи → Подзадачи (новая обязательная цепочка)
+- **Требование обязательно связано со стейкхолдером**; в ссылке отображается тип стейкхолдера, переход — на карточку стейкхолдера.
+- **Задача обязательно связана с требованием**; если требования ещё нет — его можно создать прямо из карточки задачи.
+- На карточке требования можно создавать связанные задачи и переходить на их карточки.
+- На карточке стейкхолдера можно создавать требования и переходить на их карточки.
+- Задачи образуют иерархию: задача → подзадачи (`parent_task_id`). Подзадачи наследуют принадлежность требованию/проекту.
+- Зависимости «от завершения каких задач зависит начало» — DAG; на карточке виден и обратный список (кто зависит от неё).
+- Все списки задач и подзадач показывают краткое описание.
 
-### 2.5 Справочники
-Все глобальные, правит администратор: роли; должности/типы стейкхолдеров; обязательные вопросы по типу; типовые NFR; модели STT (с признаками streaming/diarization и лимитом сессии); модели LLM; шаблоны промптов.
+### 2.5 Задачи: тип, важность, статусы
+- **Тип:** новая функциональность, улучшение, исправление ошибки, анализ, документирование, тестирование, код-ревью.
+- **Важность:** низкая, средняя, высокая, критическая.
+- **Статусы:** открыта, взята в работу, отклонена, отложена, завершена полностью, полное завершение отложено. Начальный статус — «открыта».
+- **Краткое описание (обязательно)** и **полное описание (опционально)** у каждой задачи/подзадачи.
+- **Номер задачи** в рамках проекта (для сортировки по номеру).
+- **Задачи назначаются на сотрудника, а не на должность.** При назначении задачи/подзадачи можно сначала выбрать тип должности и из сотрудников проекта с этим типом выбрать исполнителя, либо выбрать сотрудника напрямую.
+- При создании подзадачи исполнителем можно выбрать себя или другого сотрудника.
+- К задаче/подзадаче крепятся файлы; комментарии зарегистрированных пользователей (включая гостя); к комментариям можно крепить файлы; файлы просматриваются с карточки задачи.
 
-### 2.6 Анализ «на лету»
-Только подсказка следующего вопроса. Гибрид: детерминированные кандидаты = незаданные обязательные вопросы для типа стейкхолдера + накопленный транскрипт; LLM выбирает/переформулирует. Вызов LLM троттлится (по паузе речи/кнопке/интервалу), не на каждый сегмент.
+### 2.5.1 Задачи сбора информации (тип «анализ») — частный случай
+- Задачи сбора информации — это задачи типа `analysis` («анализ»); отдельный флаг не нужен.
+- Для задач типа «анализ» действует цикл приёмки: сдача результата → «на проверке» → аналитик принимает («завершена») или отклоняет («отклонена», обязательный комментарий) → возврат на доработку.
+- Для остальных типов задач цикл приёмки не применяется.
+
+### 2.6 Справочники
+Все глобальные, правит администратор: роли; должности/типы стейкхолдеров; обязательные вопросы по типу; типовые NFR; модели STT; модели LLM; шаблоны промптов.
+
+### 2.7 Анализ «на лету»
+Только подсказка следующего вопроса: детерминированные кандидаты (незаданные обязательные вопросы по типу стейкхолдера) + накопленный транскрипт → LLM выбирает/переформулирует. Троттлинг обязателен.
+
+### 2.8 Источники аудио и внешние материалы
+- Запись нашим сервисом (MediaRecorder), а также **внешние материалы**: аудио и готовые транскрипты из telemost.yandex и ПО онлайн-курсов.
+- К беседе можно приложить файлы с аудио и текстом транскрибации; они обрабатываются так же, как данные, полученные сервисом.
+- Текст транскрибации можно просмотреть и отредактировать.
+- Аудиозаписи хранятся **до явного удаления владельцем сервиса** (автоочистки нет).
+
+### 2.9 Навигация и главная страница
+- С любой карточки можно вернуться на карточку, с которой был выполнен переход (стек навигации на клиенте).
+- На главной странице всем доступен выбор **текущего проекта**.
+- На главной — карточка «Мои задачи»: задачи по всем должностям пользователя + созданные им подзадачи в рамках текущего проекта; сортировка по дате/времени назначения и номеру; фильтры по статусу и важности; переход к карточкам подзадач.
+
+### 2.10 Панель ресурсов владельца сервиса
+- Владельцу сервиса доступна панель со статусами ресурсов платформы развёртывания: занятое и доступное место БД и файлового хранилища, а также базовые метрики (нагрузка/очередь).
 
 ## 3. Архитектура
 
-Модульный монолит (не микросервисы) с чётким разделением модулей и очередью фоновых задач.
+Модульный монолит + Procrastinate (worker поверх PostgreSQL). Redis — pub/sub, буферы и состояние live-сессий STT.
 
 ```
 React SPA ── REST/WS ──> FastAPI
                          ├─ auth / RBAC (per-project)
                          ├─ admin (справочники)
-                         ├─ projects / memberships / positions
-                         ├─ persons / stakeholders / meetings
+                         ├─ projects / memberships / roles
+                         ├─ employees / stakeholders (карточки, связи с users, вакансии)
+                         ├─ meetings / external files / transcripts
                          ├─ stt orchestrator  ──> провайдеры STT
                          ├─ llm orchestrator  ──> провайдеры LLM
-                         ├─ artifacts / requirements / diagrams
-                         └─ tasks (DAG) / notifications / comments
-         PostgreSQL   Redis (pub-sub, сессии STT)   S3/MinIO   ARQ/Celery worker
+                         ├─ requirements / artifacts / diagrams
+                         └─ tasks (иерархия + DAG) / files / comments / notifications
+   PostgreSQL (данные + очередь Procrastinate)   Redis (pub-sub, STT-сессии)   S3/MinIO
 ```
-
-Режимы одного STT-сервиса: `live` (без стабильной диаризации, сессия ограничена — чанкование и ротация) и `batch` (диаризация, перезапись live-текста). Формат хранения: см. §4.
 
 ## 4. Модель данных
 
-Схема согласована. Основные группы таблиц и обязательные ограничения.
+Полный DDL — в Приложении A. Группы:
 
 ### 4.1 Глобальные справочники
-`users` (логин, password_hash, ФИО, is_active), `roles`, `positions` (флаги `assignable_as_position`, `usable_as_stakeholder_type`), `mandatory_questions`, `nfr_types`, `llm_models`, `stt_models` (streaming/diarization/session_limit_sec), `prompt_templates`, `provider_credentials` (секреты шифровать, например Fernet).
+`users`, `roles`, `positions` (должность = тип стейкхолдера), `mandatory_questions`, `nfr_types`, `llm_models`, `stt_models`, `prompt_templates`, `provider_credentials`.
 
-### 4.2 Проекты, участие, должности
-`projects` (status: open/closed/archived), `project_memberships` (is_owner), `membership_roles`, `membership_positions`, `project_stakeholders`, `persons` (внешние стейкхолдеры, опционально `user_id`).
+### 4.2 Проекты, роли, акторы
+`projects`, `project_memberships`, `membership_roles`, `employees` (user_id NULL = вакансия), `employee_positions`, `stakeholders` (position_id NOT NULL, user_id NULL = абстрактный).
 
-### 4.3 Встречи и транскрибация
-`meetings`, `meeting_participants`, `audio_recordings` (storage_key), `transcription_jobs` (mode live/batch/hybrid, session_limit_sec, external_job_id), `transcript_segments` (speaker_label, source), `segment_question_links`, `meeting_question_coverage`.
+### 4.3 Встречи, внешние материалы, транскрибация
+`meetings`, `meeting_participants`, `meeting_files` (аудио/транскрипт из внешних источников), `audio_recordings` (source: internal/telemost/course_software/external), `transcription_jobs`, `transcript_segments`, `segment_question_links`, `meeting_question_coverage`.
 
-### 4.4 Артефакты и требования
-`analysis_runs`, `artifacts` (view/glossary/use_case/user_story/constraint/risk, content jsonb, version), `requirements` (business/functional/nonfunctional, nfr_type_id), `diagrams` (c4_context/c4_container/c4_component/bpmn, format, content, version).
+### 4.4 Требования, артефакты, диаграммы
+`requirements` (stakeholder_id NOT NULL, short_description, importance), `artifacts`, `analysis_runs`, `diagrams`.
 
-### 4.5 Задачи и взаимодействие
-`info_tasks` (status: unassigned/assigned/in_progress/on_review/accepted/rejected/cancelled), `task_dependencies`, `task_assignments` (assigned_at/unassigned_at), `task_result_versions` (review_status, review_comment), `task_attachments`, `comments` (полиморфная привязка entity_type/entity_id, author_role_snapshot, soft-delete), `notifications`, `audit_log`.
+### 4.5 Задачи
+`tasks` (number per project, parent_task_id, requirement_id NOT NULL, type, importance, status, short_description), `task_dependencies`, `task_assignments` (employee_id), `task_attachments`, `task_result_versions`, `comments` (полиморфные), `comment_attachments`, `notifications`, `audit_log`.
 
-### 4.6 Обязательные инварианты в БД
-- `UNIQUE(project_id) WHERE role_code='system_analyst'` — ровно один аналитик на проект.
-- Триггер на `membership_roles`: не более одной роли, кроме набора `{admin, system_analyst}`.
-- Триггер: владельца (`is_owner=true`) нельзя снять с роли admin и удалить его membership.
-- `task_assignments` может отсутствовать (задача без исполнителя).
-- `CHECK`: при `review_status='rejected'` поле `review_comment` не пустое.
-- Триггер на `task_dependencies`: запрет циклов (плюс топосортировка в сервисе).
-- Политика доступа: `open`-проекты видят все; `closed/archived` — только admin проекта.
-- Все ключевые изменения (роли, должности, приемка/отклонение, удаление комментариев) — в `audit_log`.
+### 4.6 Инварианты в БД
+- Ровно один аналитик на проект (частичный уникальный индекс).
+- Одна роль на проект, кроме `{admin, system_analyst}` (триггер).
+- Владельца нельзя снять с admin и удалить его membership (триггер).
+- `requirements.stakeholder_id NOT NULL`; `tasks.requirement_id NOT NULL`.
+- `stakeholders.position_id NOT NULL` (тип обязателен).
+- `UNIQUE(project_id, number)` для задач.
+- Запрет циклов в `task_dependencies` (триггер + топосортировка).
+- `CHECK`: при отклонении/возврате комментарий не пуст.
+- Статус `on_review` допустим только для задач типа `analysis`.
+- Доступ к `closed`/`archived` — только admin (RLS/политика).
+- Ключевые действия — в `audit_log`.
 
-Полный DDL приведён в Приложении A.
-
-## 5. Этапы и задачи (ordered)
+## 5. Этапы и задачи
 
 ### M0. Каркас и инфраструктура
-1. Структура репозитория: `backend/` (FastAPI), `frontend/` (React+TS), `deploy/` (docker-compose: postgres, redis, minio, app, worker), `plans/`.
-2. Docker Compose для локального старта; `.env.example`; конфиг через pydantic-settings; секреты не в репозитории.
-3. FastAPI app factory, healthcheck `/health`, OpenAPI, базовое логирование, OpenTelemetry (по желанию).
-4. Alembic init; async-движок SQLAlchemy; базовые модели.
-5. CI: lint (ruff), typecheck (mypy), pytest; frontend lint+typecheck.
-   - Приёмка: `docker compose up` поднимает пустой API + PostgreSQL + Redis + MinIO; тесты и линтеры проходят.
+Структура `backend/`, `frontend/`, `deploy/`; docker-compose (postgres, redis, minio, app, worker); pydantic-settings; FastAPI app factory + `/health`; Alembic; CI (ruff/mypy/pytest, frontend lint+typecheck).
+- Приёмка: `docker compose up` поднимает пустой API + PostgreSQL + Redis + MinIO; Procrastinate worker стартует; тесты/линтеры проходят.
 
 ### M1. Аутентификация, пользователи, гости
-1. `POST /auth/register` (логин, пароль, ФИО), `POST /auth/login`, `POST /auth/refresh`; хеш пароля (argon2/bcrypt).
-2. Новый пользователь — гость. Резолвинг доступа: нет membership → роль `guest`.
-3. Политика видимости проектов: `open` — всем; `closed/archived` — admin проекта.
-4. `GET /me`, `PATCH /me`.
-   - Приёмка: регистрация/логин; гость видит список `open`-проектов и не видит архив.
+`POST /auth/register` (ФИО), `login`, `refresh`; новый пользователь — гость; `GET/PATCH /me`; видимость проектов (`open` — всем, архив — только admin).
+- Приёмка: регистрация/логин; гость видит `open`-проекты и не видит архив.
 
 ### M2. Глобальные справочники (admin)
-1. CRUD: `positions`, `mandatory_questions` (по position), `nfr_types`, `llm_models`, `stt_models`, `prompt_templates`.
-2. Импорт/сид справочников; флаги `assignable_as_position` / `usable_as_stakeholder_type`.
-3. Шифрование `provider_credentials`; API для сохранения ключей; подсказка по получению ключа Yandex SpeechKit (текст в UI).
-   - Приёмка: только admin редактирует; роли/гость получают 403 на запись.
+CRUD `positions`, `mandatory_questions`, `nfr_types`, `llm_models`, `stt_models`, `prompt_templates`; сиды; шифрование `provider_credentials`; подсказка по ключу Yandex.
+- Приёмка: запись только admin (иначе 403).
 
-### M3. Проекты, участие, должности, персоны
-1. `POST /projects` (создатель → admin + is_owner), `POST /projects/{id}/close` (+ архивный доступ для admin).
-2. Управление участниками: `POST /projects/{id}/members`; назначение/смена роли (`PATCH .../roles`); защита владельца.
-3. Передача роли аналитика (атомарно: снять у прежнего, назначить новому), уникальность.
-4. Назначение должностей в проекте (`membership_positions`); самоназначение аналитиком допустимо.
-5. `persons` и `project_stakeholders` (тип = position).
-6. При понижении до гостя: незакрытые задачи → `unassigned` (транзакционно).
-   - Приёмка: ровно один аналитик; владельца нельзя разжаловать; одна роль на проект кроме admin+SA.
+### M3. Проекты, роли, текущий проект
+`POST /projects` (создатель → admin + is_owner); close/archive; участники и роли; передача роли аналитика (атомарно); защита владельца; выбор текущего проекта.
+- Приёмка: ровно один аналитик; владельца нельзя разжаловать; архив только admin.
 
-### M4. Встречи и ручной журнал
-1. CRUD встреч, участников; статусы planned/in_progress/completed/cancelled.
-2. Ручной ввод вопросов/ответов → `transcript_segments` (source=manual).
-3. Coverage обязательных вопросов (`meeting_question_coverage`), связь сегмент↔вопрос.
-4. Экран «незаданные обязательные вопросы».
-   - Приёмка: журнал собирается вручную, coverage считается корректно.
+### M4. Сотрудники и стейкхолдеры
+1. Карточки сотрудника и стейкхолдера; тип стейкхолдера обязателен.
+2. Связь с пользователем (опц.); абстрактный стейкхолдер; вакантная должность.
+3. Назначение должностей сотруднику в проекте; несколько должностей.
+4. На карточке пользователя — назначение должности/статуса стейкхолдера в текущем проекте (создаёт сотрудника/стейкхолдера); удаление связи (сотрудник → вакансия, задачи без исполнителя; стейкхолдер → абстрактный).
+5. При создании пользователя — связь с ранее созданным сотрудником/стейкхолдером.
+- Приёмка: на пользователя в проекте — ровно один сотрудник с теми же ФИО; связи создаются/удаляются с указанными последствиями; переходы между карточками работают.
 
-### M5. Аудио и batch-транскрибация с диаризацией
-1. Presigned upload в S3/MinIO; `audio_recordings`; ffmpeg-нормализация.
-2. Очередь `transcription_jobs`; адаптер Yandex batch STT с `speakerLabeling`.
-3. Запись результата в `transcript_segments` (source=asr_batch, speaker_label); замена live-текста при наличии.
-4. Выбор STT-модели; состояние job, ретраи, ошибки.
-   - Приёмка: загруженный файл транскрибируется с разделением спикеров; результат редактируем.
+### M5. Встречи, внешние материалы, ручной журнал
+1. CRUD встреч и участников; статусы.
+2. Загрузка внешних аудио и транскриптов (telemost/course software) как `meeting_files`; обработка наравне с внутренними.
+3. Ручной журнал (`transcript_segments` source=manual); просмотр и редактирование текста.
+4. Coverage обязательных вопросов; экран «незаданные вопросы».
+- Приёмка: внешний транскрипт импортируется и редактируется; coverage корректен.
 
-### M6. Live-транскрибация и подсказка вопроса
-1. WebSocket `/meetings/{id}/transcribe`: приём аудиочанков, буферизация в Redis.
-2. Менеджер сессий STT: чанкование, ротация по `session_limit_sec`, склейка с перекрытием, стабильность текста.
-3. Live-подсказка следующего вопроса: кандидаты = незаданные обязательные + контекст → LLM (троттлинг, стриминг ответа).
-4. UI: live-журнал, индикатор оставшихся обязательных вопросов, кнопка «подсказать».
-   - Приёмка: встреча > лимита сессии не обрывается; подсказка учитывает незаданные вопросы; LLM не вызывается на каждый сегмент.
+### M6. Аудио и batch-транскрибация с диаризацией
+Presigned upload; `audio_recordings` (source); Procrastinate-задача; адаптер Yandex batch STT (`speakerLabeling`); запись сегментов; замена live-текста; выбор модели; ретраи/ошибки.
+- Приёмка: файл транскрибируется с разделением спикеров; результат редактируем.
 
-### M7. LLM-анализ и артефакты
-1. Абстракция `LLMProvider` + адаптеры (YandexGPT, GigaChat, OpenAI-совместимые); выбор модели в запросе/настройках.
-2. Первичный анализ встречи: View, Ограничения и риски, Glossary, Use Case, User Stories → `artifacts` (jsonb, версии); ручное редактирование.
-3. Ручной режим: сформировать промпт для внешнего ИИ-чата и принять вставленный ответ (`analysis_runs`/`artifacts`, source=manual).
-4. Авто-формирование последовательности задач сбора информации (DAG + распараллеливание) через LLM; возможность правки.
-5. Генерация промптов для поисковых запросов в интернете.
-   - Приёмка: анализ создаёт артефакты; промпт можно скопировать и вернуть результат вручную; задачи формируются и редактируются.
+### M7. Live-транскрибация и подсказка вопроса
+WebSocket; буферы в Redis; менеджер сессий (чанки/ротация по `session_limit_sec`/склейка); live-подсказка следующего вопроса (кандидаты + контекст → LLM, троттлинг); UI журнала и индикатора.
+- Приёмка: встреча > лимита не обрывается; подсказка учитывает незаданные вопросы.
 
-### M8. Задачи сбора, результаты, уведомления
-1. CRUD `info_tasks`; зависимости-DAG; запрет циклов; сортировка/приоритеты.
-2. Экран аналитика «задачи без исполнителя»; назначение/переназначение (история).
-3. Сдача результата (текст и/или файлы) → `task_result_versions` + `task_attachments`.
-4. Приёмка/отклонение с обязательным комментарием; возврат в работу; версионирование результатов.
-5. Передача результата другим сотрудникам с учётом последовательности (DAG).
-6. Уведомления (WS + `notifications`): исполнителю о назначении, аналитику о сдаче; просмотр результата из окна оповещения.
-7. Гости: комментарии к задачам и прочим сущностям; admin soft-delete.
-   - Приёмка: полный цикл задача→сдача→(возврат)→приёмка; уведомления доходят; история сохраняется.
+### M8. Требования и LLM-артефакты
+1. CRUD требований с обязательной связью со стейкхолдером; краткое описание, важность, тип (BR/FR/NFR), типовые NFR.
+2. Создание задач из карточки требования и требований из карточки стейкхолдера/задачи.
+3. LLM-анализ встречи (View, Ограничения/риски, Glossary, Use Case, User Stories) → `artifacts`; ручной режим (промпт для внешнего чата + вставка ответа).
+4. Автогенерация последовательности задач сбора (DAG) через LLM; генерация поисковых промптов.
+- Приёмка: требования связаны со стейкхолдером; артефакты создаются; промпт можно скопировать и вернуть результат.
 
-### M9. Требования и диаграммы
-1. Ручное и автоматическое формирование BR/FR/NFR; подсказка типовых NFR из `nfr_types`; генерация через API LLM или промпт для ИИ-чата.
-2. C4: LLM → Structurizr DSL → рендер (Context/Container/Component); версии.
-3. BPMN: LLM → BPMN-XML → bpmn-js; версии.
-4. Экспорт диаграмм (SVG/PNG/XML/DSL).
-   - Приёмка: диаграммы рендерятся и сохраняются; требования создаются в обоих режимах.
+### M9. Задачи, подзадачи, зависимости, файлы, комментарии
+1. CRUD задач и подзадач: тип, важность, статус (начальный «открыта»), краткое и полное описание, номер в проекте.
+2. Обязательная связь с требованием; создание требования из карточки задачи.
+3. Назначение/переназначение на сотрудника (история); фильтр «тип должности → сотрудники проекта» или прямой выбор сотрудника; назначение себя/другого при создании подзадачи.
+4. DAG-зависимости + обратный список; запрет циклов.
+5. Файлы к задачам; комментарии (в т.ч. гость); файлы к комментариям; просмотр файлов.
+6. Задачи типа «анализ» (сбор информации): сдача → «на проверке» → приёмка/отклонение с обязательным комментарием; возврат на доработку; версии результата. Прочие типы — без цикла приёмки.
+7. Уведомления (WS + `notifications`).
+- Приёмка: полный цикл задача→подзадача→сдача→(возврат)→приёмка; история и файлы сохраняются.
 
-### M10. Production hardening
-1. Audit log покрывает все критичные операции; RLS/политики для архивов и гостей.
-2. Rate-limit и circuit breaker для внешних STT/LLM; таймауты, ретраи, бюджеты.
-3. ПДн/152-ФЗ: согласие на запись, сроки хранения, шифрование, on-prem провайдеры.
-4. Мониторинг (метрики, трейсы), алерты; бэкапы БД и S3.
-5. Нагрузочное тестирование WebSocket-транскрибации; тесты DAG.
+### M10. Карточки и навигация; личный кабинет
+1. Стек навигации «назад» (клиент).
+2. Главная: выбор текущего проекта; карточка «Мои задачи» (все должности + созданные подзадачи) с сортировкой (дата/время назначения, номер) и фильтрами (статус, важность).
+3. Карточки задачи/подзадачи, требования, сотрудника, стейкхолдера, пользователя — переходы согласно §2.4 и §2.9.
+- Приёмка: все переходы и возвраты работают; «Мои задачи» фильтруются/сортируются.
+
+### M11. Диаграммы C4/BPMN
+LLM → Structurizr DSL (C4 Context/Container/Component) и BPMN-XML (bpmn-js); версии; экспорт в **PNG и SVG**.
+- Приёмка: диаграммы рендерятся, сохраняются, экспортируются в PNG/SVG.
+
+### M12. Production hardening
+Audit log, RLS для архива/гостей, rate-limit и circuit breaker для STT/LLM, ПДн/152-ФЗ (согласие на запись, шифрование, хранение аудио до явного удаления владельцем), мониторинг, бэкапы, нагрузочные тесты WebSocket и DAG, **панель ресурсов владельца** (занятое и доступное место БД и файлового хранилища, очередь).
 
 ## 6. Ключевые риски и failure modes
 
@@ -188,39 +212,42 @@ React SPA ── REST/WS ──> FastAPI
 |---|---|
 | Диаризация недоступна в streaming | Live без спикеров; batch с диаризацией и заменой текста |
 | Лимит длины live-сессии STT | Менеджер сессий: чанки/ротация/склейка, состояние в Redis |
-| Стоимость/задержка LLM при live | Троттлинг, кандидаты детерминированы, LLM только выбирает/формулирует |
-| Обрыв WebSocket/сети при встрече | Буферизация аудио на клиенте, дозагрузка, idempotent сегменты |
-| Цикл в DAG задач | Триггер + топосортировка; запрет сохранения |
-| Утечка ПДн/ключей | Шифрование секретов, RBAC per-project, audit, сроки хранения |
+| Стоимость/задержка LLM | Троттлинг; кандидаты детерминированы; LLM только выбирает/формулирует |
+| Обрыв WebSocket | Клиентский буфер аудио, дозагрузка, идемпотентные сегменты |
+| Цикл в DAG задач | Триггер + топосортировка |
+| Вакансия/абстракция при удалении связи | Задачи сохраняются за вакансией (без исполнителя); стейкхолдер → абстрактный |
+| Исчерпание места на Beget (БД/S3) | Панель ресурсов владельца, мониторинг и алерты |
+| Утечка ПДн/ключей | Шифрование, RBAC per-project, audit, сроки хранения |
 | Гонка при передаче роли аналитика | Транзакция + частичный уникальный индекс |
-| Потеря истории при возврате задачи | Версионирование результата, soft-delete комментариев |
 
 ## 7. План проверки
 
-- Unit: инварианты ролей, владелец, DAG, coverage, статусная машина задач.
-- Integration (testcontainers: PostgreSQL, Redis, MinIO): auth, RBAC per-project, STT/LLM адаптеры с моками.
-- Contract: OpenAPI-схемы + типы frontend.
-- E2E (Playwright): регистрация→роль→проект→встреча→задача→сдача→приёмка→артефакты.
+- Unit: инварианты ролей/владельца, DAG, coverage, статусная машина, вакансии/абстракции.
+- Integration (testcontainers: PostgreSQL, Redis, MinIO; Procrastinate worker): auth, RBAC, STT/LLM-адаптеры с моками, импорт внешних файлов.
+- Contract: OpenAPI + типы frontend.
+- E2E (Playwright): регистрация→роль→проект→сотрудник/стейкхолдер→встреча→требование→задача→подзадача→сдача→приёмка→артефакты→навигация назад.
 - Load: многочасовая live-транскрибация с ротацией сессий.
-- Security: проверка доступа гостя/архива, отсутствие секретов в логах.
+- Security: доступ гостя/архива, отсутствие секретов в логах.
+- Трассировка: каждое из 30 новых требований покрыто тестом (Приложение B).
 
 ## 8. Вне scope
 
 - Мобильные приложения.
-- Видеоконференц-платформа (интеграция с внешними ВКС — позже).
-- Федеративная аутентификация (SSO/OIDC) — при необходимости отдельным этапом.
-- Fine-tuning моделей.
+- Интеграция с ВКС по API (в external-режиме материалы загружаются файлами).
+- SSO/OIDC; fine-tuning моделей.
 
 ## 9. Открытые вопросы
 
-1. **Способ фоновых задач:** ARQ или Celery (влияет на структуру worker и ретраи).
-2. **Закрытый проект:** виден только admin или всем участникам read-only как архив (уточнить перед M3).
-3. **Внешние ВКС:** запись берётся из браузера или из конференц-системы.
-4. **Хостинг и ПДн:** российское облако/on-prem и требования к хранению аудио (сроки).
+Все ранее открытые вопросы закрыты: «признак задачи» — это отметка «задача/подзадача»; Beget.ru с Docker подтверждён (PostgreSQL и S3 внутри Docker); диаграммы экспортируются в PNG/SVG; аудио хранится до явного удаления владельцем. Добавлено требование о панели ресурсов владельца (§2.10).
 
-## Приложение A. DDL (согласованная схема)
+## Приложение A. DDL (v2)
+
+Изменения относительно v1: удалены `persons` и `project_stakeholders`; добавлены `employees`, `employee_positions`, `stakeholders`, `meeting_files`, `comment_attachments`; `requirements` получил `stakeholder_id`, `short_description`, `importance`; `info_tasks` заменён на `tasks` (иерархия, тип, важность, новые статусы, номер).
 
 ```sql
+-- ===================== РАСШИРЕНИЯ =====================
+CREATE EXTENSION IF NOT EXISTS pgcrypto;   -- gen_random_uuid()
+
 -- ===================== ГЛОБАЛЬНЫЕ СПРАВОЧНИКИ =====================
 CREATE TYPE role_code AS ENUM ('admin','system_analyst','employee','guest');
 
@@ -255,29 +282,17 @@ CREATE TABLE mandatory_questions (
   is_active    boolean NOT NULL DEFAULT true
 );
 
-CREATE TABLE nfr_types       (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE, name text, description text);
-CREATE TABLE llm_models      (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider text, model_code text, display_name text, is_default boolean DEFAULT false, params jsonb);
-CREATE TABLE stt_models      (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider text, model_code text, display_name text,
-                              is_default boolean DEFAULT false,
-                              supports_streaming boolean, supports_diarization boolean,
-                              session_limit_sec int);
-CREATE TABLE prompt_templates(id uuid PRIMARY KEY DEFAULT gen_random_uuid(), purpose text, name text, template text, is_system boolean DEFAULT false);
+CREATE TABLE nfr_types        (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), code text UNIQUE, name text, description text);
+CREATE TABLE llm_models       (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider text, model_code text, display_name text, is_default boolean DEFAULT false, params jsonb);
+CREATE TABLE stt_models       (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider text, model_code text, display_name text,
+                               is_default boolean DEFAULT false,
+                               supports_streaming boolean, supports_diarization boolean,
+                               session_limit_sec int);
+CREATE TABLE prompt_templates (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), purpose text, name text, template text, is_system boolean DEFAULT false);
 CREATE TABLE provider_credentials (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), provider text, scope text,
-                              encrypted_secret bytea, created_at timestamptz DEFAULT now());
+                               encrypted_secret bytea, created_at timestamptz DEFAULT now());
 
--- ===================== ПЕРСОНАЛИИ =====================
-CREATE TABLE persons (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  last_name   text NOT NULL,
-  first_name  text NOT NULL,
-  middle_name text,
-  user_id     uuid UNIQUE REFERENCES users(id),
-  organization text,
-  email       text,
-  phone       text
-);
-
--- ===================== ПРОЕКТЫ И УЧАСТИЕ =====================
+-- ===================== ПРОЕКТЫ, РОЛИ, УЧАСТИЕ =====================
 CREATE TYPE project_status AS ENUM ('open','closed','archived');
 
 CREATE TABLE projects (
@@ -313,54 +328,97 @@ CREATE TABLE membership_roles (
 CREATE UNIQUE INDEX uq_one_analyst_per_project
   ON membership_roles (project_id) WHERE role_code = 'system_analyst';
 
-CREATE TABLE membership_positions (
-  membership_id uuid NOT NULL REFERENCES project_memberships(id) ON DELETE CASCADE,
-  position_id   uuid NOT NULL REFERENCES positions(id),
-  assigned_by   uuid REFERENCES users(id),
-  assigned_at   timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (membership_id, position_id)
-);
-
-CREATE TABLE project_stakeholders (
+-- ===================== АКТОРЫ: СОТРУДНИКИ И СТЕЙКХОЛДЕРЫ =====================
+-- Сотрудник; user_id IS NULL => вакантная должность
+CREATE TABLE employees (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  person_id   uuid NOT NULL REFERENCES persons(id),
-  position_id uuid REFERENCES positions(id),
-  notes       text,
-  UNIQUE (project_id, person_id, position_id)
+  user_id     uuid REFERENCES users(id),
+  last_name   text,
+  first_name  text,
+  middle_name text,
+  created_by  uuid REFERENCES users(id),
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, user_id)     -- один сотрудник-персона на проект (NULL допускает много вакансий)
 );
 
--- ===================== ВСТРЕЧИ, АУДИО, ТРАНСКРИБАЦИЯ =====================
+CREATE TABLE employee_positions (
+  employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  position_id uuid NOT NULL REFERENCES positions(id),
+  assigned_by uuid REFERENCES users(id),
+  assigned_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (employee_id, position_id)
+);
+
+-- Стейкхолдер; position_id обязателен (тип); user_id IS NULL => абстрактный
+CREATE TABLE stakeholders (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id   uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  position_id  uuid NOT NULL REFERENCES positions(id),
+  user_id      uuid REFERENCES users(id),
+  last_name    text,
+  first_name   text,
+  middle_name  text,
+  organization text,
+  notes        text,
+  created_by   uuid REFERENCES users(id),
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===================== ВСТРЕЧИ, ВНЕШНИЕ МАТЕРИАЛЫ, ТРАНСКРИБАЦИЯ =====================
 CREATE TYPE meeting_status AS ENUM ('planned','in_progress','completed','cancelled');
 
 CREATE TABLE meetings (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id            uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title                 text,
-  stakeholder_person_id uuid REFERENCES persons(id),
-  status                meeting_status NOT NULL DEFAULT 'planned',
-  scheduled_at          timestamptz,
-  started_at            timestamptz,
-  ended_at              timestamptz,
-  created_by            uuid REFERENCES users(id)
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title          text,
+  stakeholder_id uuid REFERENCES stakeholders(id),
+  status         meeting_status NOT NULL DEFAULT 'planned',
+  scheduled_at   timestamptz,
+  started_at     timestamptz,
+  ended_at       timestamptz,
+  created_by     uuid REFERENCES users(id)
 );
 
 CREATE TABLE meeting_participants (
-  meeting_id   uuid NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-  person_id    uuid NOT NULL REFERENCES persons(id),
-  meeting_role text,
-  PRIMARY KEY (meeting_id, person_id)
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id     uuid NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_id        uuid REFERENCES users(id),
+  employee_id    uuid REFERENCES employees(id),
+  stakeholder_id uuid REFERENCES stakeholders(id),
+  meeting_role   text,
+  CHECK (num_nonnulls(user_id, employee_id, stakeholder_id) = 1)
+);
+
+CREATE TYPE media_source AS ENUM ('internal','telemost','course_software','external');
+CREATE TYPE meeting_file_kind AS ENUM ('audio','transcript');
+
+-- Внешние аудио и готовые транскрипты, приложенные к беседе
+CREATE TABLE meeting_files (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id      uuid NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  kind            meeting_file_kind NOT NULL,
+  source          media_source NOT NULL DEFAULT 'external',
+  storage_key     text NOT NULL,
+  filename        text,
+  mime_type       text,
+  size_bytes      bigint,
+  transcript_text text,                 -- если kind='transcript'
+  uploaded_by     uuid REFERENCES users(id),
+  uploaded_at     timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE audio_recordings (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  meeting_id uuid NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
-  storage_key text NOT NULL,
-  mime_type  text,
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id   uuid NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  source       media_source NOT NULL DEFAULT 'internal',
+  meeting_file_id uuid REFERENCES meeting_files(id),
+  storage_key  text NOT NULL,
+  mime_type    text,
   duration_sec int,
-  size_bytes bigint,
-  checksum   text,
-  created_at timestamptz DEFAULT now()
+  size_bytes   bigint,
+  checksum     text,
+  created_at   timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TYPE job_status AS ENUM ('queued','running','done','failed');
@@ -380,7 +438,7 @@ CREATE TABLE transcription_jobs (
   error           text
 );
 
-CREATE TYPE segment_source AS ENUM ('manual','asr_live','asr_batch','asr_edited');
+CREATE TYPE segment_source AS ENUM ('manual','asr_live','asr_batch','asr_edited','external');
 
 CREATE TABLE transcript_segments (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -393,6 +451,7 @@ CREATE TABLE transcript_segments (
   source        segment_source NOT NULL DEFAULT 'manual',
   confidence    numeric(4,3),
   created_by    uuid REFERENCES users(id),
+  updated_at    timestamptz DEFAULT now(),
   created_at    timestamptz DEFAULT now()
 );
 
@@ -411,7 +470,38 @@ CREATE TABLE meeting_question_coverage (
   PRIMARY KEY (meeting_id, question_id)
 );
 
--- ===================== АРТЕФАКТЫ АНАЛИЗА =====================
+-- ===================== ТРЕБОВАНИЯ, АРТЕФАКТЫ, ДИАГРАММЫ =====================
+CREATE TYPE requirement_type AS ENUM ('business','functional','nonfunctional');
+CREATE TYPE importance AS ENUM ('low','medium','high','critical');
+
+CREATE TABLE requirements (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  stakeholder_id    uuid NOT NULL REFERENCES stakeholders(id),   -- обязательная связь
+  type              requirement_type NOT NULL,
+  title             text NOT NULL,
+  short_description text,
+  description       text,
+  nfr_type_id       uuid REFERENCES nfr_types(id),
+  importance        importance NOT NULL DEFAULT 'medium',
+  status            text DEFAULT 'draft',
+  source            text,
+  created_by        uuid REFERENCES users(id),
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE artifacts (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  meeting_id uuid REFERENCES meetings(id),
+  type       text NOT NULL CHECK (type IN ('view','glossary','use_case','user_story','constraint','risk')),
+  content    jsonb NOT NULL,
+  source     text NOT NULL DEFAULT 'auto' CHECK (source IN ('auto','manual')),
+  version    int NOT NULL DEFAULT 1,
+  created_by uuid REFERENCES users(id),
+  created_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE analysis_runs (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   meeting_id   uuid REFERENCES meetings(id),
@@ -424,108 +514,90 @@ CREATE TABLE analysis_runs (
   created_at   timestamptz DEFAULT now()
 );
 
-CREATE TYPE artifact_type AS ENUM ('view','glossary','use_case','user_story','constraint','risk');
-CREATE TABLE artifacts (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  meeting_id uuid REFERENCES meetings(id),
-  type       artifact_type NOT NULL,
-  content    jsonb NOT NULL,
-  source     text NOT NULL DEFAULT 'auto' CHECK (source IN ('auto','manual')),
-  version    int NOT NULL DEFAULT 1,
-  created_by uuid REFERENCES users(id),
-  created_at timestamptz DEFAULT now()
-);
-
-CREATE TYPE requirement_type AS ENUM ('business','functional','nonfunctional');
-CREATE TABLE requirements (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  type        requirement_type NOT NULL,
-  title       text NOT NULL,
-  description text,
-  nfr_type_id uuid REFERENCES nfr_types(id),
-  priority    int,
-  status      text DEFAULT 'draft',
-  source      text,
-  created_by  uuid REFERENCES users(id),
-  created_at  timestamptz DEFAULT now()
-);
-
 CREATE TYPE diagram_type AS ENUM ('c4_context','c4_container','c4_component','bpmn');
 CREATE TABLE diagrams (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id      uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  type            diagram_type NOT NULL,
-  name            text,
-  format          text DEFAULT 'dsl',
-  content         text,
-  version         int DEFAULT 1,
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id       uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  type             diagram_type NOT NULL,
+  name             text,
+  format           text DEFAULT 'dsl',
+  content          text,
+  version          int DEFAULT 1,
   generated_by_llm boolean DEFAULT true,
-  created_by      uuid REFERENCES users(id),
-  created_at      timestamptz DEFAULT now()
+  created_by       uuid REFERENCES users(id),
+  created_at       timestamptz DEFAULT now()
 );
 
--- ===================== ЗАДАЧИ СБОРА ИНФОРМАЦИИ =====================
-CREATE TYPE task_status AS ENUM ('unassigned','assigned','in_progress','on_review','accepted','rejected','cancelled');
+-- ===================== ЗАДАЧИ И ПОДЗАДАЧИ =====================
+CREATE TYPE task_type AS ENUM ('feature','improvement','bugfix','analysis','documentation','testing','code_review');
+CREATE TYPE task_status AS ENUM ('open','in_progress','on_review','rejected','postponed','completed','completion_postponed');
 
-CREATE TABLE info_tasks (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title       text NOT NULL,
-  description text,
-  prompt      text,
-  status      task_status NOT NULL DEFAULT 'unassigned',
-  due_at      timestamptz,
-  sort_order  int DEFAULT 0,
-  created_by  uuid REFERENCES users(id),
-  created_at  timestamptz DEFAULT now()
+CREATE TABLE tasks (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  number            int NOT NULL,                        -- номер в рамках проекта
+  parent_task_id    uuid REFERENCES tasks(id) ON DELETE CASCADE,  -- подзадача
+  requirement_id    uuid NOT NULL REFERENCES requirements(id),    -- обязательная связь
+  type              task_type NOT NULL,
+  importance        importance NOT NULL DEFAULT 'medium',
+  status            task_status NOT NULL DEFAULT 'open',
+  short_description text NOT NULL,
+  description       text,                                -- полное описание
+  prompt            text,
+  due_at            timestamptz,
+  sort_order        int DEFAULT 0,
+  created_by        uuid REFERENCES users(id),
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, number)
 );
 
 CREATE TABLE task_dependencies (
-  task_id            uuid NOT NULL REFERENCES info_tasks(id) ON DELETE CASCADE,
-  depends_on_task_id uuid NOT NULL REFERENCES info_tasks(id) ON DELETE CASCADE,
+  task_id            uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_task_id uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   PRIMARY KEY (task_id, depends_on_task_id),
   CHECK (task_id <> depends_on_task_id)
 );
 
+-- Исполнитель — сотрудник (может быть вакантным: без пользователя)
 CREATE TABLE task_assignments (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id       uuid NOT NULL REFERENCES info_tasks(id) ON DELETE CASCADE,
-  membership_id uuid NOT NULL REFERENCES project_memberships(id),
+  task_id       uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  employee_id   uuid NOT NULL REFERENCES employees(id),
   assigned_by   uuid REFERENCES users(id),
   assigned_at   timestamptz NOT NULL DEFAULT now(),
   unassigned_at timestamptz
 );
 
+CREATE TABLE task_attachments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  task_id     uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  storage_key text NOT NULL,
+  filename    text,
+  mime_type   text,
+  size_bytes  bigint,
+  uploaded_by uuid REFERENCES users(id),
+  uploaded_at timestamptz DEFAULT now()
+);
+
+-- Версии результата для задач сбора информации (совместимо с приёмкой/возвратом)
 CREATE TABLE task_result_versions (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  task_id        uuid NOT NULL REFERENCES info_tasks(id) ON DELETE CASCADE,
+  task_id        uuid NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   version_no     int NOT NULL,
   result_text    text,
   submitted_by   uuid REFERENCES users(id),
   submitted_at   timestamptz DEFAULT now(),
   review_status  text CHECK (review_status IN ('pending','accepted','rejected')),
   review_comment text,
-  UNIQUE (task_id, version_no)
+  UNIQUE (task_id, version_no),
+  CHECK (review_status IS DISTINCT FROM 'rejected' OR (review_comment IS NOT NULL AND length(review_comment) > 0))
 );
 
-CREATE TABLE task_attachments (
-  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  result_version_id uuid NOT NULL REFERENCES task_result_versions(id) ON DELETE CASCADE,
-  storage_key       text NOT NULL,
-  filename          text,
-  mime_type         text,
-  size_bytes        bigint,
-  uploaded_by       uuid REFERENCES users(id),
-  uploaded_at       timestamptz DEFAULT now()
-);
-
--- ===================== КОММЕНТАРИИ, УВЕДОМЛЕНИЯ, АУДИТ =====================
+-- ===================== КОММЕНТАРИИ, ФАЙЛЫ КОММЕНТАРИЕВ, УВЕДОМЛЕНИЯ, АУДИТ =====================
 CREATE TABLE comments (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id           uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  entity_type          text NOT NULL,
+  entity_type          text NOT NULL,     -- task | requirement | stakeholder | meeting | artifact
   entity_id            uuid NOT NULL,
   author_user_id       uuid REFERENCES users(id),
   author_role_snapshot role_code,
@@ -535,6 +607,17 @@ CREATE TABLE comments (
   deleted_by           uuid REFERENCES users(id)
 );
 CREATE INDEX ix_comments_entity ON comments (entity_type, entity_id);
+
+CREATE TABLE comment_attachments (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  comment_id  uuid NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+  storage_key text NOT NULL,
+  filename    text,
+  mime_type   text,
+  size_bytes  bigint,
+  uploaded_by uuid REFERENCES users(id),
+  uploaded_at timestamptz DEFAULT now()
+);
 
 CREATE TABLE notifications (
   id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -556,4 +639,36 @@ CREATE TABLE audit_log (
   after         jsonb,
   created_at    timestamptz DEFAULT now()
 );
+
+-- ===================== ИНДЕКСЫ ПОД ЭКРАНЫ =====================
+CREATE INDEX ix_tasks_project_status   ON tasks (project_id, status);
+CREATE INDEX ix_tasks_parent           ON tasks (parent_task_id);
+CREATE INDEX ix_tasks_requirement      ON tasks (requirement_id);
+CREATE INDEX ix_assignments_employee   ON task_assignments (employee_id);
+CREATE INDEX ix_requirements_stakehold ON requirements (stakeholder_id);
 ```
+
+## Приложение B. Трассировка новых требований
+
+| № | Требование | Реализация |
+|---|---|---|
+| 1 | Внешние аудио/транскрипты к беседе | `meeting_files`, `audio_recordings.source`, импорт в M5 |
+| 2 | Просмотр/редактирование транскрипта | `transcript_segments` (`updated_at`), API PATCH, M5 |
+| 3 | Задача ↔ требование (обязательно), создание требования из задачи | `tasks.requirement_id NOT NULL`, UI M8/M9 |
+| 4 | Краткое описание в списках | `tasks.short_description`, `requirements.short_description` |
+| 5,7 | Задача → требование, требование → задачи | переходы карточек, M10 |
+| 6,9 | Создание требований/задач со связанных карточек | UI M8/M9 |
+| 8 | Требование ↔ стейкхолдер, тип в ссылке | `requirements.stakeholder_id`, join `positions` |
+| 10,13,18 | Переходы на карточки стейкхолдера/пользователя/задач | навигация M10 |
+| 11,12 | Связь стейкхолдера с пользователем; тип обязателен | `stakeholders.user_id`, `position_id NOT NULL` |
+| 14 | Назначение должности/статуса на карточке пользователя; удаление связи | `employees`, `employee_positions`, `stakeholders`, M4 |
+| 15 | Связь нового пользователя с сотрудником/стейкхолдером | M4 |
+| 16,17,18 | Карточка сотрудника: список задач, создание и переход | M4/M9/M10 |
+| 19 | Возврат на предыдущую карточку | навигационный стек (клиент), M10 |
+| 20 | Выбор текущего проекта | M3/M10 |
+| 21 | «Мои задачи» с сортировкой/фильтрами | API M10 (`project_id`, employee, filters) |
+| 22,23 | Переход к подзадачам; создание подзадач с исполнителем | `tasks.parent_task_id`, `task_assignments`, M9 |
+| 24 | Тип, важность, начальный статус; набор статусов | `task_type`, `importance`, `task_status`, M9 |
+| 25,26 | Зависимости и обратный список | `task_dependencies`, M9 |
+| 27,30 | Файлы к задачам и их просмотр | `task_attachments`, M9 |
+| 28,29 | Комментарии (в т.ч. гость) и файлы к ним | `comments`, `comment_attachments`, M9 |
