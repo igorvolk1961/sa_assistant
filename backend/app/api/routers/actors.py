@@ -18,6 +18,7 @@ from app.schemas.actor import (
     StakeholderCreate,
     StakeholderOut,
 )
+from app.schemas.reference import PositionOut
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["actors"])
 
@@ -152,6 +153,26 @@ async def link_employee_user(
     await session.commit()
     await session.refresh(employee)
     return employee
+
+
+@router.get("/employees/{employee_id}/positions", response_model=list[PositionOut])
+async def list_employee_positions(
+    employee_id: uuid.UUID,
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(*_VIEW)),
+    session: AsyncSession = Depends(get_session),
+) -> list[Position]:
+    project, _, _ = ctx
+    employee = await session.get(Employee, employee_id)
+    if employee is None or employee.project_id != project.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+    position_ids = select(EmployeePosition.position_id).where(
+        EmployeePosition.employee_id == employee_id
+    )
+    return list(
+        (await session.execute(select(Position).where(Position.id.in_(position_ids))))
+        .scalars()
+        .all()
+    )
 
 
 @router.post("/employees/{employee_id}/positions", response_model=EmployeeOut)

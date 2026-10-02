@@ -14,6 +14,7 @@ from app.api.routers import (
     meetings,
     notifications,
     projects,
+    reference,
     requirements,
     tasks,
 )
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(auth.router)
     app.include_router(admin.router)
+    app.include_router(reference.router)
     app.include_router(projects.router)
     app.include_router(actors.router)
     app.include_router(meetings.router)
