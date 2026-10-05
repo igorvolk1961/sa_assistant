@@ -1,4 +1,4 @@
-"""Startup bootstrap: default roles and the service owner account."""
+"""Startup bootstrap: default roles, reference positions, and the service owner account."""
 
 import logging
 
@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.core.enums import RoleCode
 from app.core.security import hash_password, verify_password
 from app.db.session import SessionFactory
-from app.models import Role, User
+from app.models import Position, Role, User
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +18,32 @@ DEFAULT_ROLES: dict[RoleCode, str] = {
     RoleCode.employee: "Сотрудник",
     RoleCode.guest: "Гость",
 }
+
+# Position = тип стейкхолдера / должность (глобальный справочник).
+# Должности, пригодные как тип стейкхолдера:
+POSITION_STAKEHOLDER_TYPES: tuple[tuple[str, str], ...] = (
+    ("customer", "Заказчик"),
+    ("user", "Пользователь"),
+    ("executive", "Руководитель"),
+    ("expert", "Эксперт"),
+    ("regulator", "Регулирующий орган"),
+    ("partner", "Партнёр"),
+)
+
+# Должности-роли, которые можно назначать сотрудникам как должность:
+POSITION_ASSIGNABLE: tuple[tuple[str, str], ...] = (
+    ("system_analyst", "Системный аналитик"),
+    ("developer", "Разработчик"),
+    ("tester", "Тестировщик"),
+    ("designer", "Дизайнер"),
+    ("ba", "Бизнес-аналитик"),
+)
+
+DEFAULT_POSITIONS: tuple[tuple[str, str, bool, bool], ...] = (
+    # (code, name, assignable_as_position, usable_as_stakeholder_type)
+    *((code, name, False, True) for code, name in POSITION_STAKEHOLDER_TYPES),
+    *((code, name, True, False) for code, name in POSITION_ASSIGNABLE),
+)
 
 
 async def bootstrap() -> None:
@@ -58,5 +84,27 @@ async def bootstrap() -> None:
                 settings.bootstrap_owner_password, owner.password_hash
             ):
                 owner.password_hash = hash_password(settings.bootstrap_owner_password)
+
+        for code, name, assignable, usable_as_type in DEFAULT_POSITIONS:
+            position = (
+                await session.execute(select(Position).where(Position.code == code))
+            ).scalar_one_or_none()
+            if position is None:
+                session.add(
+                    Position(
+                        code=code,
+                        name=name,
+                        assignable_as_position=assignable,
+                        usable_as_stakeholder_type=usable_as_type,
+                    )
+                )
+                logger.info("Created position '%s' (%s)", code, name)
+            else:
+                if position.name != name:
+                    position.name = name
+                if position.assignable_as_position != assignable:
+                    position.assignable_as_position = assignable
+                if position.usable_as_stakeholder_type != usable_as_type:
+                    position.usable_as_stakeholder_type = usable_as_type
 
         await session.commit()

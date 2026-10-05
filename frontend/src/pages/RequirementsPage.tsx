@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Position, Requirement, RequirementType, Stakeholder } from "../api/types";
+import type {
+  Position,
+  Requirement,
+  RequirementType,
+  Stakeholder,
+} from "../api/types";
 import { useProject } from "./ProjectLayout";
 
 const TYPES: RequirementType[] = ["business", "functional", "nonfunctional"];
@@ -22,7 +27,9 @@ export function RequirementsPage() {
 
   async function load() {
     try {
-      setRequirements(await api.get<Requirement[]>(`/projects/${project.id}/requirements?limit=200`));
+      setRequirements(
+        await api.get<Requirement[]>(`/projects/${project.id}/requirements?limit=200`),
+      );
       setStakeholders(await api.get<Stakeholder[]>(`/projects/${project.id}/stakeholders`));
       setPositions(await api.get<Position[]>("/reference/positions"));
     } catch (err) {
@@ -93,7 +100,13 @@ export function RequirementsPage() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <h3>Новое требование</h3>
-        <form onSubmit={create} className="row" style={{ alignItems: "flex-end" }}>
+        <form
+          className="row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void create(e);
+          }}
+        >
           <label style={{ flex: 2 }}>
             Название
             <input
