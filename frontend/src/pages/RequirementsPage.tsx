@@ -128,21 +128,21 @@ export function RequirementsPage() {
               ))}
             </select>
           </label>
-          <label style={{ flex: 2 }}>
-            Стейкхолдер
-            <select
-              value={form.stakeholder_id}
-              onChange={(e) => setForm({ ...form, stakeholder_id: e.target.value })}
-              required
-            >
-              <option value="">— выберите —</option>
-              {stakeholders.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {stakeholderLabel(s.id)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectWithCreate
+            options={stakeholders}
+            value={form.stakeholder_id}
+            onChange={(id) => setForm({ ...form, stakeholder_id: id })}
+            getLabel={(s) => stakeholderLabel(s.id)}
+            createButtonLabel="Создать стейкхолдера"
+            modalTitle="Новый стейкхолдер"
+            createForm={
+              <NewStakeholderForm
+                project={project}
+                positions={positions}
+                onCreated={reloadStakeholders}
+              />
+            }
+          />
           <button className="primary">Создать</button>
         </form>
       </div>
