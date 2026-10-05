@@ -8,6 +8,21 @@
 - `frontend/` — React + TypeScript (Vite).
 - `deploy/` — docker-compose для локального запуска (PostgreSQL, Redis, MinIO).
 
+## Быстрый старт (скрипты)
+
+Скрипты POSIX-совместимы: запускайте как `./scripts/start.sh`, либо
+`sh scripts/start.sh`, либо `bash scripts/start.sh`.
+
+```bash
+./scripts/start.sh       # инфраструктура + миграции + backend + frontend
+./scripts/status.sh      # статус сервисов
+./scripts/stop.sh        # остановить приложение
+./scripts/stop.sh --all  # + остановить инфраструктуру
+```
+
+После старта: UI — http://127.0.0.1:5173, API — http://127.0.0.1:5000/docs,
+логин `admin` / `owner12345` (dev). Логи процессов — в `.run/`.
+
 ## Быстрый старт (backend)
 
 ```bash
