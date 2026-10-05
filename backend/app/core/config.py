@@ -2,6 +2,7 @@
 
 import secrets
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,10 +10,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PLACEHOLDER_SECRET = "change-me"
 _DEFAULT_OWNER_PASSWORD = "admin12345"  # noqa: S105
 
+# .env is kept in the repository root, but the app may run from backend/,
+# so look in both places (backend/.env overrides the root one).
+_ROOT_DIR = Path(__file__).resolve().parents[3]
+_ENV_FILES = (_ROOT_DIR / ".env", _ROOT_DIR / "backend" / ".env")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=_ENV_FILES, env_file_encoding="utf-8", extra="ignore"
     )
 
     app_env: str = "dev"
