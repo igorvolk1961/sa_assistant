@@ -8,6 +8,8 @@ import type {
   Task,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
+import { NewEmployeeForm } from "../components/NewEmployeeForm";
+import { SelectWithCreate } from "../components/SelectWithCreate";
 import { useProject } from "./ProjectLayout";
 
 interface Assignment {
@@ -49,6 +51,8 @@ export function TaskCardPage() {
   const [subtaskTitle, setSubtaskTitle] = useState("");
   const [resultText, setResultText] = useState("");
   const [reviewComment, setReviewComment] = useState("");
+  const [editShort, setEditShort] = useState("");
+  const [editDesc, setEditDesc] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
@@ -56,6 +60,8 @@ export function TaskCardPage() {
     try {
       const loaded = await api.get<Task>(base);
       setTask(loaded);
+      setEditShort(loaded.short_description);
+      setEditDesc(loaded.description ?? "");
       setRequirement(await api.get<Requirement>(`/projects/${project.id}/requirements/${loaded.requirement_id}`));
       setEmployees(await api.get<Employee[]>(`/projects/${project.id}/employees`));
       setAssignments(await api.get<Assignment[]>(`${base}/assignments`));
@@ -90,6 +96,10 @@ export function TaskCardPage() {
     }
   }
 
+  async function reloadEmployees() {
+    setEmployees(await api.get<Employee[]>(`/projects/${project.id}/employees`));
+  }
+
   if (error) return <div className="error">{error}</div>;
   if (!task) return <div>Загрузка задачи…</div>;
 
@@ -116,7 +126,22 @@ export function TaskCardPage() {
             "…"
           )}
         </p>
-        <p>{task.description ?? "Полное описание не задано."}</p>
+        <div className="form-column" style={{ maxWidth: 640, marginTop: 8 }}>
+          <label className="muted">Краткое описание</label>
+          <input value={editShort} onChange={(e) => setEditShort(e.target.value)} required />
+          <label className="muted">Полное описание</label>
+          <textarea rows={4} value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+          <div className="row">
+            <button
+              className="primary"
+              onClick={() =>
+                run(() => api.patch(base, { short_description: editShort, description: editDesc }))
+              }
+            >
+              Сохранить
+            </button>
+          </div>
+        </div>
         {task.prompt && (
           <p className="muted">
             Промпт: <code>{task.prompt}</code>
@@ -147,24 +172,25 @@ export function TaskCardPage() {
           })}
           {assignments.length === 0 && <span className="muted">Нет исполнителей (задача в пуле).</span>}
         </div>
-        <select
-          defaultValue=""
-          onChange={(e) => {
-            const value = e.target.value;
-            if (value) void run(() => api.post(`${base}/assignments`, { employee_id: value }));
-            e.target.value = "";
+        <SelectWithCreate
+          options={employees.filter((employee) => !assignedIds.has(employee.id))}
+          value=""
+          onChange={(id) => {
+            if (id) void run(() => api.post(`${base}/assignments`, { employee_id: id }));
           }}
-        >
-          <option value="">Назначить сотрудника…</option>
-          {employees
-            .filter((employee) => !assignedIds.has(employee.id))
-            .map((employee) => (
-              <option key={employee.id} value={employee.id}>
-                {employee.last_name} {employee.first_name}
-                {employee.user_id === null ? " (вакансия)" : ""}
-              </option>
-            ))}
-        </select>
+          getLabel={(employee) =>
+            `${employee.last_name ?? ""} ${employee.first_name ?? ""}${
+              employee.user_id === null ? " (вакансия)" : ""
+            }`
+          }
+          reload={reloadEmployees}
+          createLabel="+ Создать исполнителя"
+          modalTitle="Новый исполнитель"
+          placeholder="Назначить сотрудника…"
+          renderCreateForm={({ onCreated }) => (
+            <NewEmployeeForm project={project} onCreated={onCreated} />
+          )}
+        />
       </div>
 
       <div className="card">
