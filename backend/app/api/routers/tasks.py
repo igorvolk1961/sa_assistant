@@ -28,6 +28,7 @@ from app.schemas.task import (
     DependencyCreate,
     ReviewRequest,
     SubmitRequest,
+    TaskAssigneeOut,
     TaskAssignmentOut,
     TaskAttachmentOut,
     TaskCreate,
@@ -82,6 +83,42 @@ async def _assignee_user_ids(session: AsyncSession, task_id: uuid.UUID) -> list[
     return [uid for uid in rows if uid is not None]
 
 
+async def _load_assignees(
+    session: AsyncSession, task_ids: list[uuid.UUID]
+) -> dict[uuid.UUID, list[TaskAssigneeOut]]:
+    if not task_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(
+                TaskAssignment.task_id,
+                Employee.id,
+                Employee.last_name,
+                Employee.first_name,
+                Employee.user_id,
+            )
+            .join(Employee, Employee.id == TaskAssignment.employee_id)
+            .where(
+                TaskAssignment.task_id.in_(task_ids),
+                TaskAssignment.unassigned_at.is_(None),
+            )
+        )
+    ).all()
+    result: dict[uuid.UUID, list[TaskAssigneeOut]] = {}
+    for task_id, employee_id, last_name, first_name, user_id in rows:
+        name = " ".join(part for part in (last_name, first_name) if part) or "—"
+        result.setdefault(task_id, []).append(
+            TaskAssigneeOut(employee_id=employee_id, name=name, is_vacant=user_id is None)
+        )
+    return result
+
+
+def _task_out(task: Task, assignees: dict[uuid.UUID, list[TaskAssigneeOut]]) -> TaskOut:
+    return TaskOut.model_validate(task).model_copy(
+        update={"assignees": assignees.get(task.id, [])}
+    )
+
+
 async def _analyst_user_ids(session: AsyncSession, project_id: uuid.UUID) -> list[uuid.UUID]:
     return list(
         (
@@ -130,11 +167,13 @@ async def list_tasks(
                 )
             )
         )
-    return list(
+    tasks = list(
         (await session.execute(stmt.order_by(Task.number).limit(limit).offset(offset)))
         .scalars()
         .all()
     )
+    assignees = await _load_assignees(session, [task.id for task in tasks])
+    return [_task_out(task, assignees) for task in tasks]
 
 
 @router.get("/my-tasks", response_model=list[TaskOut])
@@ -166,9 +205,11 @@ async def my_tasks(
         stmt = stmt.where(Task.status == status_filter)
     if importance is not None:
         stmt = stmt.where(Task.importance == importance)
-    return list(
+    tasks = list(
         (await session.execute(stmt.limit(limit).offset(offset))).scalars().all()
     )
+    assignees = await _load_assignees(session, [task.id for task in tasks])
+    return [_task_out(task, assignees) for task in tasks]
 
 
 @router.post("/tasks", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
@@ -232,7 +273,9 @@ async def get_task(
     session: AsyncSession = Depends(get_session),
 ) -> Task:
     project, _, _ = ctx
-    return await _task_or_404(session, project.id, task_id)
+    task = await _task_or_404(session, project.id, task_id)
+    assignees = await _load_assignees(session, [task.id])
+    return _task_out(task, assignees)
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskOut)

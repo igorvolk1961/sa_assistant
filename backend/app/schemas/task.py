@@ -33,6 +33,12 @@ class TaskUpdate(BaseModel):
     status: TaskStatus | None = None
     due_at: datetime | None = None
 
+class TaskAssigneeOut(BaseModel):
+    employee_id: uuid.UUID
+    name: str
+    is_vacant: bool
+
+
 class TaskOut(ORMModel):
     id: uuid.UUID
     project_id: uuid.UUID
@@ -49,6 +55,7 @@ class TaskOut(ORMModel):
     sort_order: int
     created_by: uuid.UUID | None
     created_at: datetime
+    assignees: list[TaskAssigneeOut] = []
 
 
 class AssignmentCreate(BaseModel):

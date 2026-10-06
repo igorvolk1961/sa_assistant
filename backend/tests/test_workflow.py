@@ -351,6 +351,26 @@ async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClien
     assert after.json()["epic_id"] is None
 
 
+async def test_task_list_includes_assignees(client: AsyncClient) -> None:
+    s = await _setup(client)
+    project_id = s["project_id"]
+    await client.post(
+        f"/projects/{project_id}/tasks",
+        json={
+            "requirement_id": s["requirement_id"],
+            "type": "feature",
+            "short_description": "С исполнителем",
+            "assignee_employee_ids": [s["employee_id"]],
+        },
+        headers=_auth(s["owner"]),
+    )
+    listed = await client.get(f"/projects/{project_id}/tasks", headers=_auth(s["owner"]))
+    assert listed.status_code == 200
+    task = next(t for t in listed.json() if t["short_description"] == "С исполнителем")
+    assert len(task["assignees"]) == 1
+    assert task["assignees"][0]["employee_id"] == s["employee_id"]
+
+
 async def test_create_vacant_employee_with_blank_user_id(client: AsyncClient) -> None:
     s = await _setup(client)
     response = await client.post(

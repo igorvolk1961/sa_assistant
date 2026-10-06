@@ -122,6 +122,12 @@ export interface NfrType {
   description: string | null;
 }
 
+export interface TaskAssignee {
+  employee_id: string;
+  name: string;
+  is_vacant: boolean;
+}
+
 export interface Task {
   id: string;
   project_id: string;
@@ -136,6 +142,7 @@ export interface Task {
   prompt: string | null;
   due_at: string | null;
   created_at: string;
+  assignees: TaskAssignee[];
 }
 
 export interface Meeting {

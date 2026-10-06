@@ -164,6 +164,7 @@ export function TasksPage() {
             <th>Тип</th>
             <th>Важность</th>
             <th>Статус</th>
+            <th>Исполнители</th>
             <th>Вид</th>
           </tr>
         </thead>
@@ -181,12 +182,21 @@ export function TasksPage() {
               <td>
                 <span className={`badge ${task.status}`}>{task.status}</span>
               </td>
+              <td>
+                {task.assignees.length > 0
+                  ? task.assignees
+                      .map((assignee) =>
+                        assignee.is_vacant ? `${assignee.name} (вак.)` : assignee.name,
+                      )
+                      .join(", ")
+                  : "—"}
+              </td>
               <td className="muted">{task.parent_task_id ? "подзадача" : "задача"}</td>
             </tr>
           ))}
           {tasks.length === 0 && (
             <tr>
-              <td colSpan={6} className="muted">
+              <td colSpan={7} className="muted">
                 Нет задач.
               </td>
             </tr>
