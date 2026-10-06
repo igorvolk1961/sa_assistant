@@ -4,13 +4,40 @@ import { api } from "../api/client";
 import type {
   Comment,
   Employee,
+  Importance,
+  Position,
   Requirement,
+  Stakeholder,
   Task,
+  TaskStatus,
+  TaskType,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { NewEmployeeForm } from "../components/NewEmployeeForm";
+import { NewRequirementForm } from "../components/NewRequirementForm";
 import { SelectWithCreate } from "../components/SelectWithCreate";
+import { compareRequirementCode } from "../utils/sort";
 import { useProject } from "./ProjectLayout";
+
+const TASK_TYPES: TaskType[] = [
+  "feature",
+  "improvement",
+  "bugfix",
+  "analysis",
+  "documentation",
+  "testing",
+  "code_review",
+];
+const IMPORTANCE_OPTIONS: Importance[] = ["low", "medium", "high", "critical"];
+const STATUS_OPTIONS: TaskStatus[] = [
+  "open",
+  "in_progress",
+  "on_review",
+  "rejected",
+  "postponed",
+  "completed",
+  "completion_postponed",
+];
 
 interface Assignment {
   id: string;
@@ -38,6 +65,9 @@ export function TaskCardPage() {
   const base = `/projects/${project.id}/tasks/${taskId}`;
   const [task, setTask] = useState<Task | null>(null);
   const [requirement, setRequirement] = useState<Requirement | null>(null);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [dependencies, setDependencies] = useState<Task[]>([]);
@@ -63,6 +93,11 @@ export function TaskCardPage() {
       setEditShort(loaded.short_description);
       setEditDesc(loaded.description ?? "");
       setRequirement(await api.get<Requirement>(`/projects/${project.id}/requirements/${loaded.requirement_id}`));
+      setRequirements(
+        await api.get<Requirement[]>(`/projects/${project.id}/requirements?limit=500`),
+      );
+      setStakeholders(await api.get<Stakeholder[]>(`/projects/${project.id}/stakeholders`));
+      setPositions(await api.get<Position[]>("/reference/positions"));
       setEmployees(await api.get<Employee[]>(`/projects/${project.id}/employees`));
       setAssignments(await api.get<Assignment[]>(`${base}/assignments`));
       setDependencies(await api.get<Task[]>(`${base}/dependencies`));
@@ -100,11 +135,36 @@ export function TaskCardPage() {
     setEmployees(await api.get<Employee[]>(`/projects/${project.id}/employees`));
   }
 
+  async function reloadRequirements() {
+    setRequirements(
+      await api.get<Requirement[]>(`/projects/${project.id}/requirements?limit=500`),
+    );
+  }
+
+  async function reloadStakeholders() {
+    setStakeholders(await api.get<Stakeholder[]>(`/projects/${project.id}/stakeholders`));
+  }
+
   if (error) return <div className="error">{error}</div>;
   if (!task) return <div>Загрузка задачи…</div>;
 
   const isAnalysis = task.type === "analysis";
+  const statusOptions = isAnalysis
+    ? STATUS_OPTIONS.filter(
+        (s) =>
+          s === "open" ||
+          s === "in_progress" ||
+          s === "postponed" ||
+          s === "completion_postponed",
+      )
+    : STATUS_OPTIONS;
+  const statusChoices = statusOptions.includes(task.status)
+    ? statusOptions
+    : [task.status, ...statusOptions];
   const assignedIds = new Set(assignments.map((a) => a.employee_id));
+  const sortedRequirements = [...requirements].sort((a, b) =>
+    compareRequirementCode(a.code, b.code),
+  );
 
   return (
     <>
@@ -147,6 +207,75 @@ export function TaskCardPage() {
             Промпт: <code>{task.prompt}</code>
           </p>
         )}
+      </div>
+
+      <div className="card">
+        <h3>Атрибуты</h3>
+        <div className="row" style={{ alignItems: "flex-end" }}>
+          <div style={{ flex: 2 }}>
+            <div className="muted">Требование</div>
+            <SelectWithCreate
+              options={sortedRequirements}
+              value={task.requirement_id}
+              onChange={(id) => {
+                if (id) void run(() => api.patch(base, { requirement_id: id }));
+              }}
+              getLabel={(req) => `${req.code ? `${req.code} ` : ""}${req.title}`}
+              reload={reloadRequirements}
+              createLabel="+ Создать"
+              modalTitle="Новое требование"
+              placeholder="— требование —"
+              renderCreateForm={({ onCreated }) => (
+                <NewRequirementForm
+                  project={project}
+                  stakeholders={stakeholders}
+                  positions={positions}
+                  reloadStakeholders={reloadStakeholders}
+                  onCreated={onCreated}
+                />
+              )}
+            />
+          </div>
+          <label>
+            Тип
+            <select
+              value={task.type}
+              onChange={(e) => run(() => api.patch(base, { type: e.target.value }))}
+            >
+              {TASK_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Важность
+            <select
+              value={task.importance}
+              onChange={(e) => run(() => api.patch(base, { importance: e.target.value }))}
+            >
+              {IMPORTANCE_OPTIONS.map((importance) => (
+                <option key={importance} value={importance}>
+                  {importance}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Статус
+            <select
+              value={task.status}
+              onChange={(e) => run(() => api.patch(base, { status: e.target.value }))}
+            >
+              {statusChoices.map((status) => (
+                <option key={status} value={status}>
+                  {status}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <div className="card">

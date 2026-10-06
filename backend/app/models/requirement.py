@@ -43,7 +43,9 @@ class Requirement(Base):
         UUID(as_uuid=True), sa.ForeignKey("positions.id")
     )
     code: Mapped[str | None] = mapped_column(sa.String(50))
-    epic: Mapped[str | None] = mapped_column(sa.String(300))
+    epic_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("requirement_epics.id")
+    )
     type: Mapped[RequirementType] = mapped_column(
         enum_col(RequirementType, "requirement_type"), nullable=False
     )
@@ -69,6 +71,27 @@ class Requirement(Base):
     source: Mapped[str | None] = mapped_column(sa.String(100))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("users.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
+    )
+
+
+class RequirementEpic(Base):
+    __tablename__ = "requirement_epics"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "name", name="uq_requirement_epic_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(sa.String(300), nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=sa.text("0")
     )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()

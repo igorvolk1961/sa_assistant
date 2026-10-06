@@ -78,19 +78,48 @@ export interface Stakeholder {
   notes: string | null;
 }
 
+export type ImplementationStatus =
+  | "implemented"
+  | "partial"
+  | "missing"
+  | "planned"
+  | "unknown";
+export type PriorityMoscow = "must" | "should" | "could" | "wont";
+
 export interface Requirement {
   id: string;
   project_id: string;
-  stakeholder_id: string;
+  stakeholder_id: string | null;
+  stakeholder_type_id: string | null;
+  code: string | null;
+  epic_id: string | null;
   type: RequirementType;
   title: string;
   short_description: string | null;
   description: string | null;
+  acceptance_criteria: string | null;
   nfr_type_id: string | null;
   importance: Importance;
+  priority_moscow: PriorityMoscow | null;
+  implementation_status: ImplementationStatus | null;
   status: string | null;
   source: string | null;
   created_at: string;
+}
+
+export interface RequirementEpic {
+  id: string;
+  project_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface NfrType {
+  id: string;
+  code: string | null;
+  name: string | null;
+  description: string | null;
 }
 
 export interface Task {

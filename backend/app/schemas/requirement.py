@@ -16,7 +16,7 @@ class RequirementCreate(BaseModel):
     stakeholder_id: uuid.UUID | None = None
     stakeholder_type_id: uuid.UUID | None = None
     code: str | None = Field(default=None, max_length=50)
-    epic: str | None = Field(default=None, max_length=300)
+    epic_id: uuid.UUID | None = None
     short_description: str | None = None
     description: str | None = None
     acceptance_criteria: str | None = None
@@ -31,7 +31,7 @@ class RequirementUpdate(BaseModel):
     stakeholder_id: uuid.UUID | None = None
     stakeholder_type_id: uuid.UUID | None = None
     code: str | None = Field(default=None, max_length=50)
-    epic: str | None = Field(default=None, max_length=300)
+    epic_id: uuid.UUID | None = None
     type: RequirementType | None = None
     title: str | None = Field(default=None, max_length=300)
     short_description: str | None = None
@@ -51,7 +51,7 @@ class RequirementOut(ORMModel):
     stakeholder_id: uuid.UUID | None
     stakeholder_type_id: uuid.UUID | None
     code: str | None
-    epic: str | None
+    epic_id: uuid.UUID | None
     type: RequirementType
     title: str
     short_description: str | None
@@ -64,6 +64,19 @@ class RequirementOut(ORMModel):
     status: str | None
     source: str | None
     created_by: uuid.UUID | None
+    created_at: datetime
+
+
+class RequirementEpicCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=300)
+    sort_order: int = 0
+
+
+class RequirementEpicOut(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    name: str
+    sort_order: int
     created_at: datetime
 
 

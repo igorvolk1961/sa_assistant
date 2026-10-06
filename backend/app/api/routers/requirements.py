@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_project_role
@@ -15,6 +15,7 @@ from app.models import (
     Position,
     Project,
     Requirement,
+    RequirementEpic,
     Stakeholder,
     Task,
     User,
@@ -24,6 +25,8 @@ from app.schemas.requirement import (
     ArtifactOut,
     ArtifactUpdate,
     RequirementCreate,
+    RequirementEpicCreate,
+    RequirementEpicOut,
     RequirementOut,
     RequirementUpdate,
 )
@@ -131,6 +134,8 @@ async def create_requirement(
         await _stakeholder_or_422(session, project.id, data["stakeholder_id"])
     if data.get("stakeholder_type_id") is not None:
         await _position_or_422(session, data["stakeholder_type_id"])
+    if data.get("epic_id") is not None:
+        await ensure_in_project(session, project.id, RequirementEpic, data["epic_id"], "Epic")
     if data.get("code") is not None:
         await _ensure_code_free(session, project.id, data["code"])
     requirement = Requirement(project_id=project.id, created_by=actor.id, **data)
@@ -164,6 +169,8 @@ async def update_requirement(
         await _stakeholder_or_422(session, project.id, data["stakeholder_id"])
     if "stakeholder_type_id" in data and data["stakeholder_type_id"] is not None:
         await _position_or_422(session, data["stakeholder_type_id"])
+    if "epic_id" in data and data["epic_id"] is not None:
+        await ensure_in_project(session, project.id, RequirementEpic, data["epic_id"], "Epic")
     if "code" in data and data["code"] is not None:
         await _ensure_code_free(session, project.id, data["code"], exclude_id=requirement.id)
     for field, value in data.items():
@@ -212,6 +219,73 @@ async def tasks_of_requirement(
         .scalars()
         .all()
     )
+
+
+# ----------------------------- Epics -----------------------------
+@router.get("/epics", response_model=list[RequirementEpicOut])
+async def list_epics(
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(*_VIEW)),
+    session: AsyncSession = Depends(get_session),
+) -> list[RequirementEpic]:
+    project, _, _ = ctx
+    return list(
+        (
+            await session.execute(
+                select(RequirementEpic)
+                .where(RequirementEpic.project_id == project.id)
+                .order_by(RequirementEpic.sort_order, RequirementEpic.name)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@router.post("/epics", response_model=RequirementEpicOut, status_code=status.HTTP_201_CREATED)
+async def create_epic(
+    payload: RequirementEpicCreate,
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(*_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+) -> RequirementEpic:
+    project, _, _ = ctx
+    existing = (
+        await session.execute(
+            select(RequirementEpic).where(
+                RequirementEpic.project_id == project.id,
+                RequirementEpic.name == payload.name,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Epic with this name already exists"
+        )
+    epic = RequirementEpic(
+        project_id=project.id, name=payload.name, sort_order=payload.sort_order
+    )
+    session.add(epic)
+    await session.commit()
+    await session.refresh(epic)
+    return epic
+
+
+@router.delete("/epics/{epic_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_epic(
+    epic_id: uuid.UUID,
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(*_MANAGE)),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    project, _, _ = ctx
+    epic = await session.get(RequirementEpic, epic_id)
+    if epic is None or epic.project_id != project.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Epic not found")
+    await session.execute(
+        update(Requirement)
+        .where(Requirement.epic_id == epic_id)
+        .values(epic_id=None)
+    )
+    await session.delete(epic)
+    await session.commit()
 
 
 # ----------------------------- Manual artifacts -----------------------------

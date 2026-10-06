@@ -303,13 +303,21 @@ async def test_non_analysis_task_has_no_review(client: AsyncClient) -> None:
 async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClient) -> None:
     s = await _setup(client)
     project_id = s["project_id"]
+    epic = await client.post(
+        f"/projects/{project_id}/epics",
+        json={"name": "Группа 1. Тест"},
+        headers=_auth(s["owner"]),
+    )
+    assert epic.status_code == 201, epic.text
+    epic_id = epic.json()["id"]
+
     created = await client.post(
         f"/projects/{project_id}/requirements",
         json={
             "type": "functional",
             "title": "FR-TEST: проверка полей",
             "code": "FR-TEST-1",
-            "epic": "Группа 1. Тест",
+            "epic_id": epic_id,
             "priority_moscow": "must",
             "implementation_status": "partial",
             "acceptance_criteria": "метрика",
@@ -324,7 +332,7 @@ async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClien
     assert body["priority_moscow"] == "must"
     assert body["implementation_status"] == "partial"
     assert body["stakeholder_type_id"] == s["position_id"]
-    assert body["epic"] == "Группа 1. Тест"
+    assert body["epic_id"] == epic_id
 
     duplicate = await client.post(
         f"/projects/{project_id}/requirements",
@@ -332,6 +340,15 @@ async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClien
         headers=_auth(s["owner"]),
     )
     assert duplicate.status_code == 409
+
+    removed = await client.delete(
+        f"/projects/{project_id}/epics/{epic_id}", headers=_auth(s["owner"])
+    )
+    assert removed.status_code == 204
+    after = await client.get(
+        f"/projects/{project_id}/requirements/{body['id']}", headers=_auth(s["owner"])
+    )
+    assert after.json()["epic_id"] is None
 
 
 async def test_guest_comment_and_admin_soft_delete(client: AsyncClient) -> None:

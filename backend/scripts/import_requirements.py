@@ -25,7 +25,7 @@ from app.core.enums import (  # noqa: E402
     RequirementType,
 )
 from app.db.session import SessionFactory  # noqa: E402
-from app.models import NfrType, Position, Project, Requirement  # noqa: E402
+from app.models import NfrType, Position, Project, Requirement, RequirementEpic  # noqa: E402
 
 FR_ID = re.compile(r"^FR-\d+\.\d+$")
 NFR_ID = re.compile(r"^NFR-[A-Z]+-\d+$")
@@ -150,6 +150,23 @@ async def resolve_project(session, project_id: uuid.UUID | None, name: str | Non
     return project
 
 
+async def ensure_epic(session, project_id: uuid.UUID, name: str | None) -> uuid.UUID | None:
+    if not name:
+        return None
+    epic = (
+        await session.execute(
+            select(RequirementEpic).where(
+                RequirementEpic.project_id == project_id, RequirementEpic.name == name
+            )
+        )
+    ).scalar_one_or_none()
+    if epic is None:
+        epic = RequirementEpic(project_id=project_id, name=name)
+        session.add(epic)
+        await session.flush()
+    return epic.id
+
+
 async def ensure_nfr_type(session, code: str) -> uuid.UUID:
     nfr_type = (
         await session.execute(select(NfrType).where(NfrType.code == code))
@@ -211,7 +228,7 @@ async def main() -> None:
             for row in parse_fr(args.fr):
                 values = {
                     "code": row["code"],
-                    "epic": row["epic"],
+                    "epic_id": await ensure_epic(session, project.id, row["epic"]),
                     "type": RequirementType.functional,
                     "title": short(row["text"]),
                     "short_description": short(row["text"]),
@@ -230,7 +247,7 @@ async def main() -> None:
                 )
                 values = {
                     "code": row["code"],
-                    "epic": row["epic"],
+                    "epic_id": await ensure_epic(session, project.id, row["epic"]),
                     "type": RequirementType.nonfunctional,
                     "title": short(row["name"]),
                     "short_description": row["name"],

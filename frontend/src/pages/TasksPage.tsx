@@ -13,6 +13,7 @@ import type {
 } from "../api/types";
 import { NewRequirementForm } from "../components/NewRequirementForm";
 import { SelectWithCreate } from "../components/SelectWithCreate";
+import { compareRequirementCode } from "../utils/sort";
 import { useProject } from "./ProjectLayout";
 
 const TYPES: TaskType[] = [
@@ -114,6 +115,10 @@ export function TasksPage() {
       setError(err instanceof Error ? err.message : "Ошибка");
     }
   }
+
+  const sortedRequirements = [...requirements].sort((a, b) =>
+    compareRequirementCode(a.code, b.code),
+  );
 
   return (
     <>
@@ -229,7 +234,7 @@ export function TasksPage() {
           <div style={{ flex: 2 }}>
             <div className="muted">Требование</div>
             <SelectWithCreate
-              options={requirements}
+              options={sortedRequirements}
               value={form.requirement_id}
               onChange={(id) => setForm({ ...form, requirement_id: id })}
               getLabel={(requirement) => requirement.title}

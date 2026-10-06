@@ -23,7 +23,7 @@ from app.models.reference import (
     ProviderCredential,
     SttModel,
 )
-from app.models.requirement import AnalysisRun, Artifact, Diagram, Requirement
+from app.models.requirement import AnalysisRun, Artifact, Diagram, Requirement, RequirementEpic
 from app.models.task import (
     Task,
     TaskAssignment,
@@ -59,6 +59,7 @@ __all__ = [
     "PromptTemplate",
     "ProviderCredential",
     "Requirement",
+    "RequirementEpic",
     "Role",
     "SegmentQuestionLink",
     "Stakeholder",
