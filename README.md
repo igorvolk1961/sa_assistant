@@ -65,3 +65,29 @@ cd ../frontend && npm run typecheck
 cd backend && uv run python scripts/reset_db.py   # отказ при APP_ENV=production
 ```
 
+## Развёртывание на VPS (Docker)
+
+Прод-стек: PostgreSQL + Redis + backend (FastAPI) + frontend (nginx).
+Наружу открыт только HTTP-порт frontend; БД и Redis доступны лишь внутри docker-сети.
+
+```bash
+# 1. Docker на сервере (один раз)
+curl -fsSL https://get.docker.com | sh
+
+# 2. Код
+git clone https://github.com/igorvolk1961/sa_assistant.git
+cd sa_assistant/deploy
+
+# 3. Конфиг
+cp env.production.example .env
+# заполните .env: POSTGRES_PASSWORD, SECRET_KEY (openssl rand -hex 32),
+# BOOTSTRAP_OWNER_PASSWORD; DATABASE_URL должен содержать тот же пароль БД
+
+# 4. Запуск (миграции и сид типов применяются автоматически при старте backend)
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Приложение: `http://212.67.8.112`, вход `admin` / `<BOOTSTRAP_OWNER_PASSWORD>`.
+
+Обновление: `sh deploy/deploy.sh`. Логи: `docker compose -f docker-compose.prod.yml logs -f backend`.
+
