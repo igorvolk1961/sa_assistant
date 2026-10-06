@@ -18,6 +18,13 @@ class Position(Base):
     )
     code: Mapped[str] = mapped_column(sa.String(100), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(sa.String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(sa.Text)
+    category: Mapped[str | None] = mapped_column(sa.String(50))
+    representatives: Mapped[str | None] = mapped_column(sa.Text)
+    influence: Mapped[str | None] = mapped_column(sa.String(200))
+    sort_order: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=sa.text("0")
+    )
     assignable_as_position: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, server_default=sa.text("true")
     )

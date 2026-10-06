@@ -11,12 +11,22 @@ class ORMModel(BaseModel):
 class PositionCreate(BaseModel):
     code: str = Field(min_length=1, max_length=100)
     name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    category: str | None = Field(default=None, max_length=50)
+    representatives: str | None = None
+    influence: str | None = Field(default=None, max_length=200)
+    sort_order: int = 0
     assignable_as_position: bool = True
     usable_as_stakeholder_type: bool = True
 
 
 class PositionUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=200)
+    description: str | None = None
+    category: str | None = Field(default=None, max_length=50)
+    representatives: str | None = None
+    influence: str | None = Field(default=None, max_length=200)
+    sort_order: int | None = None
     assignable_as_position: bool | None = None
     usable_as_stakeholder_type: bool | None = None
 
@@ -71,6 +81,11 @@ class PositionOut(ORMModel):
     id: uuid.UUID
     code: str
     name: str
+    description: str | None
+    category: str | None
+    representatives: str | None
+    influence: str | None
+    sort_order: int
     assignable_as_position: bool
     usable_as_stakeholder_type: bool
     is_system: bool
