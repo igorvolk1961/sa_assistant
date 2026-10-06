@@ -2,7 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type { Importance, Requirement, Task, TaskStatus, TaskType } from "../api/types";
+import type {
+  Importance,
+  Position,
+  Requirement,
+  Stakeholder,
+  Task,
+  TaskStatus,
+  TaskType,
+} from "../api/types";
+import { NewRequirementForm } from "../components/NewRequirementForm";
+import { SelectWithCreate } from "../components/SelectWithCreate";
 import { useProject } from "./ProjectLayout";
 
 const TYPES: TaskType[] = [
@@ -29,6 +39,8 @@ export function TasksPage() {
   const project = useProject();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [mode, setMode] = useState<"mine" | "all">("mine");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [importanceFilter, setImportanceFilter] = useState<string>("");
@@ -57,10 +69,28 @@ export function TasksPage() {
     }
   }
 
+  async function reloadRequirements() {
+    setRequirements(
+      await api.get<Requirement[]>(`/projects/${project.id}/requirements?limit=200`),
+    );
+  }
+
+  async function reloadStakeholders() {
+    setStakeholders(await api.get<Stakeholder[]>(`/projects/${project.id}/stakeholders`));
+  }
+
   useEffect(() => {
     void api
       .get<Requirement[]>(`/projects/${project.id}/requirements?limit=200`)
       .then(setRequirements)
+      .catch(() => undefined);
+    void api
+      .get<Stakeholder[]>(`/projects/${project.id}/stakeholders`)
+      .then(setStakeholders)
+      .catch(() => undefined);
+    void api
+      .get<Position[]>("/reference/positions")
+      .then(setPositions)
       .catch(() => undefined);
   }, [project.id]);
 
@@ -72,11 +102,12 @@ export function TasksPage() {
   async function createTask(event: FormEvent) {
     event.preventDefault();
     setError(null);
+    if (!form.requirement_id) {
+      setError("Выберите или создайте требование");
+      return;
+    }
     try {
-      await api.post(`/projects/${project.id}/tasks`, {
-        ...form,
-        requirement_id: form.requirement_id || requirements[0]?.id,
-      });
+      await api.post(`/projects/${project.id}/tasks`, form);
       setForm({ ...form, short_description: "", description: "" });
       await load();
     } catch (err) {
@@ -195,21 +226,28 @@ export function TasksPage() {
               ))}
             </select>
           </label>
-          <label style={{ flex: 2 }}>
-            Требование
-            <select
+          <div style={{ flex: 2 }}>
+            <div className="muted">Требование</div>
+            <SelectWithCreate
+              options={requirements}
               value={form.requirement_id}
-              onChange={(e) => setForm({ ...form, requirement_id: e.target.value })}
-              required
-            >
-              <option value="">— выберите —</option>
-              {requirements.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.title}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={(id) => setForm({ ...form, requirement_id: id })}
+              getLabel={(requirement) => requirement.title}
+              reload={reloadRequirements}
+              createLabel="+ Создать"
+              modalTitle="Новое требование"
+              placeholder="— выберите —"
+              renderCreateForm={({ onCreated }) => (
+                <NewRequirementForm
+                  project={project}
+                  stakeholders={stakeholders}
+                  positions={positions}
+                  reloadStakeholders={reloadStakeholders}
+                  onCreated={onCreated}
+                />
+              )}
+            />
+          </div>
           <button className="primary">Создать</button>
         </form>
       </div>

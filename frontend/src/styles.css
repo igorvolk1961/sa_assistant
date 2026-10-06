@@ -161,3 +161,63 @@ td {
   color: var(--danger);
   font-size: 14px;
 }
+
+.select-with-create {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.select-with-create select {
+  flex: 1;
+  min-width: 0;
+}
+
+.select-with-create .create {
+  white-space: nowrap;
+}
+
+.form-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  width: min(480px, 92vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.modal-header h4 {
+  margin: 0;
+}
+
+.modal-close {
+  border: none;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+}

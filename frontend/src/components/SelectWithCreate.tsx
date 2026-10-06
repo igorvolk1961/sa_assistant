@@ -32,6 +32,8 @@ export interface SelectWithCreateProps<T extends { id: string }> {
   /** Renders the create form inside the modal (fields + submit). Returns the created item. */
   renderCreateForm: (ctx: SelectWithCreateCreateContext<T>) => ReactNode;
   placeholder?: string;
+  /** Title shown in the modal header. */
+  modalTitle?: string;
 }
 
 export function SelectWithCreate<T extends { id: string }>({
@@ -43,6 +45,7 @@ export function SelectWithCreate<T extends { id: string }>({
   createLabel,
   renderCreateForm,
   placeholder = "— выберите —",
+  modalTitle = "Создать",
 }: SelectWithCreateProps<T>) {
   const [open, setOpen] = useState(false);
 
@@ -66,7 +69,7 @@ export function SelectWithCreate<T extends { id: string }>({
         <div className="modal-overlay" onClick={() => setOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h4>Новый стейкхолдер</h4>
+              <h4>{modalTitle}</h4>
               <button type="button" className="modal-close" onClick={() => setOpen(false)}>
                 ×
               </button>

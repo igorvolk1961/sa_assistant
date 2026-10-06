@@ -2,12 +2,9 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import type {
-  Position,
-  Requirement,
-  RequirementType,
-  Stakeholder,
-} from "../api/types";
+import type { Position, Requirement, RequirementType, Stakeholder } from "../api/types";
+import { NewStakeholderForm } from "../components/NewStakeholderForm";
+import { SelectWithCreate } from "../components/SelectWithCreate";
 import { useProject } from "./ProjectLayout";
 
 const TYPES: RequirementType[] = ["business", "functional", "nonfunctional"];
@@ -35,6 +32,10 @@ export function RequirementsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка");
     }
+  }
+
+  async function reloadStakeholders() {
+    setStakeholders(await api.get<Stakeholder[]>(`/projects/${project.id}/stakeholders`));
   }
 
   useEffect(() => {
@@ -100,13 +101,7 @@ export function RequirementsPage() {
 
       <div className="card" style={{ marginTop: 16 }}>
         <h3>Новое требование</h3>
-        <form
-          className="row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void create(e);
-          }}
-        >
+        <form onSubmit={create} className="row" style={{ alignItems: "flex-end" }}>
           <label style={{ flex: 2 }}>
             Название
             <input
@@ -128,21 +123,25 @@ export function RequirementsPage() {
               ))}
             </select>
           </label>
-          <SelectWithCreate
-            options={stakeholders}
-            value={form.stakeholder_id}
-            onChange={(id) => setForm({ ...form, stakeholder_id: id })}
-            getLabel={(s) => stakeholderLabel(s.id)}
-            createButtonLabel="Создать стейкхолдера"
-            modalTitle="Новый стейкхолдер"
-            createForm={
-              <NewStakeholderForm
-                project={project}
-                positions={positions}
-                onCreated={reloadStakeholders}
-              />
-            }
-          />
+          <label style={{ flex: 2 }}>
+            Стейкхолдер
+            <SelectWithCreate
+              options={stakeholders}
+              value={form.stakeholder_id}
+              onChange={(id) => setForm({ ...form, stakeholder_id: id })}
+              getLabel={(s) => stakeholderLabel(s.id)}
+              reload={reloadStakeholders}
+              createLabel="+ Создать"
+              modalTitle="Новый стейкхолдер"
+              renderCreateForm={({ onCreated }) => (
+                <NewStakeholderForm
+                  project={project}
+                  positions={positions}
+                  onCreated={onCreated}
+                />
+              )}
+            />
+          </label>
           <button className="primary">Создать</button>
         </form>
       </div>
