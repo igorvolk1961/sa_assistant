@@ -9,7 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import require_project_role
 from app.core.enums import RoleCode
 from app.db.session import get_session
-from app.models import Artifact, Meeting, Project, Requirement, Stakeholder, Task, User
+from app.models import (
+    Artifact,
+    Meeting,
+    Position,
+    Project,
+    Requirement,
+    Stakeholder,
+    Task,
+    User,
+)
 from app.schemas.requirement import (
     ArtifactCreate,
     ArtifactOut,
@@ -46,6 +55,34 @@ async def _stakeholder_or_422(
             detail="Stakeholder does not belong to the project",
         )
     return stakeholder
+
+
+async def _position_or_422(session: AsyncSession, position_id: uuid.UUID) -> Position:
+    position = await session.get(Position, position_id)
+    if position is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Stakeholder type not found",
+        )
+    return position
+
+
+async def _ensure_code_free(
+    session: AsyncSession,
+    project_id: uuid.UUID,
+    code: str,
+    exclude_id: uuid.UUID | None = None,
+) -> None:
+    stmt = select(Requirement).where(
+        Requirement.project_id == project_id, Requirement.code == code
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(Requirement.id != exclude_id)
+    if (await session.execute(stmt)).scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Requirement with this code already exists in the project",
+        )
 
 
 async def _requirement_or_404(
@@ -89,10 +126,14 @@ async def create_requirement(
     session: AsyncSession = Depends(get_session),
 ) -> Requirement:
     project, actor, _ = ctx
-    await _stakeholder_or_422(session, project.id, payload.stakeholder_id)
-    requirement = Requirement(
-        project_id=project.id, created_by=actor.id, **payload.model_dump()
-    )
+    data = payload.model_dump()
+    if data.get("stakeholder_id") is not None:
+        await _stakeholder_or_422(session, project.id, data["stakeholder_id"])
+    if data.get("stakeholder_type_id") is not None:
+        await _position_or_422(session, data["stakeholder_type_id"])
+    if data.get("code") is not None:
+        await _ensure_code_free(session, project.id, data["code"])
+    requirement = Requirement(project_id=project.id, created_by=actor.id, **data)
     session.add(requirement)
     await session.commit()
     await session.refresh(requirement)
@@ -121,6 +162,10 @@ async def update_requirement(
     data = payload.model_dump(exclude_unset=True)
     if "stakeholder_id" in data and data["stakeholder_id"] is not None:
         await _stakeholder_or_422(session, project.id, data["stakeholder_id"])
+    if "stakeholder_type_id" in data and data["stakeholder_type_id"] is not None:
+        await _position_or_422(session, data["stakeholder_type_id"])
+    if "code" in data and data["code"] is not None:
+        await _ensure_code_free(session, project.id, data["code"], exclude_id=requirement.id)
     for field, value in data.items():
         setattr(requirement, field, value)
     await session.commit()

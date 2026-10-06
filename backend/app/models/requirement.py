@@ -5,7 +5,14 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.enums import DiagramType, Importance, JobStatus, RequirementType
+from app.core.enums import (
+    DiagramType,
+    ImplementationStatus,
+    Importance,
+    JobStatus,
+    PriorityMoscow,
+    RequirementType,
+)
 from app.db.base import Base, enum_col
 
 
@@ -14,6 +21,13 @@ class Requirement(Base):
     __table_args__ = (
         sa.Index("ix_requirements_stakeholder", "stakeholder_id"),
         sa.Index("ix_requirements_project", "project_id"),
+        sa.Index(
+            "uq_requirement_project_code",
+            "project_id",
+            "code",
+            unique=True,
+            postgresql_where=sa.text("code IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -22,15 +36,21 @@ class Requirement(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
     )
-    stakeholder_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), sa.ForeignKey("stakeholders.id"), nullable=False
+    stakeholder_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("stakeholders.id")
     )
+    stakeholder_type_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("positions.id")
+    )
+    code: Mapped[str | None] = mapped_column(sa.String(50))
+    epic: Mapped[str | None] = mapped_column(sa.String(300))
     type: Mapped[RequirementType] = mapped_column(
         enum_col(RequirementType, "requirement_type"), nullable=False
     )
     title: Mapped[str] = mapped_column(sa.String(300), nullable=False)
     short_description: Mapped[str | None] = mapped_column(sa.Text)
     description: Mapped[str | None] = mapped_column(sa.Text)
+    acceptance_criteria: Mapped[str | None] = mapped_column(sa.Text)
     nfr_type_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("nfr_types.id")
     )
@@ -38,6 +58,12 @@ class Requirement(Base):
         enum_col(Importance, "importance"),
         nullable=False,
         server_default=sa.text("'medium'"),
+    )
+    priority_moscow: Mapped[PriorityMoscow | None] = mapped_column(
+        enum_col(PriorityMoscow, "priority_moscow")
+    )
+    implementation_status: Mapped[ImplementationStatus | None] = mapped_column(
+        enum_col(ImplementationStatus, "implementation_status")
     )
     status: Mapped[str | None] = mapped_column(sa.String(50), server_default=sa.text("'draft'"))
     source: Mapped[str | None] = mapped_column(sa.String(100))

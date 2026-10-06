@@ -72,6 +72,21 @@ class Importance(StrEnum):
     critical = "critical"
 
 
+class PriorityMoscow(StrEnum):
+    must = "must"
+    should = "should"
+    could = "could"
+    wont = "wont"
+
+
+class ImplementationStatus(StrEnum):
+    implemented = "implemented"
+    partial = "partial"
+    missing = "missing"
+    planned = "planned"
+    unknown = "unknown"
+
+
 class TaskType(StrEnum):
     feature = "feature"
     improvement = "improvement"

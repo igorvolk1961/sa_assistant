@@ -300,6 +300,40 @@ async def test_non_analysis_task_has_no_review(client: AsyncClient) -> None:
     assert response.status_code == 409
 
 
+async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClient) -> None:
+    s = await _setup(client)
+    project_id = s["project_id"]
+    created = await client.post(
+        f"/projects/{project_id}/requirements",
+        json={
+            "type": "functional",
+            "title": "FR-TEST: проверка полей",
+            "code": "FR-TEST-1",
+            "epic": "Группа 1. Тест",
+            "priority_moscow": "must",
+            "implementation_status": "partial",
+            "acceptance_criteria": "метрика",
+            "stakeholder_type_id": s["position_id"],
+        },
+        headers=_auth(s["owner"]),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["stakeholder_id"] is None
+    assert body["code"] == "FR-TEST-1"
+    assert body["priority_moscow"] == "must"
+    assert body["implementation_status"] == "partial"
+    assert body["stakeholder_type_id"] == s["position_id"]
+    assert body["epic"] == "Группа 1. Тест"
+
+    duplicate = await client.post(
+        f"/projects/{project_id}/requirements",
+        json={"type": "functional", "title": "dup", "code": "FR-TEST-1"},
+        headers=_auth(s["owner"]),
+    )
+    assert duplicate.status_code == 409
+
+
 async def test_guest_comment_and_admin_soft_delete(client: AsyncClient) -> None:
     s = await _setup(client)
     project_id = s["project_id"]
