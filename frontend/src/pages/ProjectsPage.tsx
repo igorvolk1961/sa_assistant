@@ -8,7 +8,7 @@ import { useCurrentProject } from "../project/CurrentProjectContext";
 export function ProjectsPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { setCurrentProject } = useCurrentProject();
+  const { currentProjectId, setCurrentProject } = useCurrentProject();
   const [projects, setProjects] = useState<Project[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -35,6 +35,18 @@ export function ProjectsPage() {
   function open(project: Project) {
     setCurrentProject(project);
     navigate(`/projects/${project.id}/tasks`);
+  }
+
+  async function remove(project: Project) {
+    if (!window.confirm(`Удалить проект «${project.name}» со всем содержимым?`)) return;
+    setError(null);
+    try {
+      await api.del(`/projects/${project.id}`);
+      if (currentProjectId === project.id) setCurrentProject(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка");
+    }
   }
 
   return (
@@ -64,9 +76,14 @@ export function ProjectsPage() {
               <span className={`badge ${project.status}`}>{project.status}</span>
             </div>
             {project.description && <p className="muted">{project.description}</p>}
-            <button className="primary" onClick={() => open(project)}>
-              Открыть
-            </button>
+            <div className="row">
+              <button className="primary" onClick={() => open(project)}>
+                Открыть
+              </button>
+              <button className="danger" onClick={() => void remove(project)}>
+                Удалить
+              </button>
+            </div>
           </div>
         ))}
         {projects.length === 0 && <p className="muted">Нет доступных проектов.</p>}

@@ -351,6 +351,36 @@ async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClien
     assert after.json()["epic_id"] is None
 
 
+async def test_delete_project_cascades(client: AsyncClient, session) -> None:
+    from sqlalchemy import func, select
+
+    from app.models import Requirement
+
+    s = await _setup(client)
+    project_id = s["project_id"]
+
+    guest = await _register_and_login(client, f"guest_{_suffix()}")
+    forbidden = await client.delete(
+        f"/projects/{project_id}", headers=_auth(guest["access_token"])
+    )
+    assert forbidden.status_code == 403
+
+    deleted = await client.delete(f"/projects/{project_id}", headers=_auth(s["owner"]))
+    assert deleted.status_code == 204
+
+    gone = await client.get(f"/projects/{project_id}", headers=_auth(s["owner"]))
+    assert gone.status_code == 404
+
+    remaining = (
+        await session.execute(
+            select(func.count())
+            .select_from(Requirement)
+            .where(Requirement.project_id == uuid.UUID(project_id))
+        )
+    ).scalar_one()
+    assert remaining == 0
+
+
 async def test_guest_comment_and_admin_soft_delete(client: AsyncClient) -> None:
     s = await _setup(client)
     project_id = s["project_id"]

@@ -2,13 +2,28 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_project_role, require_project_role
 from app.core.enums import ProjectStatus, RoleCode
 from app.db.session import get_session
-from app.models import MembershipRole, Project, ProjectMembership, User
+from app.models import (
+    Artifact,
+    AuditLog,
+    Comment,
+    Diagram,
+    Employee,
+    Meeting,
+    MembershipRole,
+    Project,
+    ProjectMembership,
+    Requirement,
+    RequirementEpic,
+    Stakeholder,
+    Task,
+    User,
+)
 from app.schemas.project import (
     MemberAdd,
     MemberOut,
@@ -166,6 +181,38 @@ async def close_project(
     await session.commit()
     await session.refresh(project)
     return project
+
+
+@router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(RoleCode.admin)),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Delete a project with all its content (admin only)."""
+    project, actor, _ = ctx
+    project_id = project.id
+
+    # Ordered deletion to satisfy non-cascading foreign keys.
+    await session.execute(delete(Task).where(Task.project_id == project_id))
+    await session.execute(delete(Requirement).where(Requirement.project_id == project_id))
+    await session.execute(
+        delete(RequirementEpic).where(RequirementEpic.project_id == project_id)
+    )
+    await session.execute(delete(Comment).where(Comment.project_id == project_id))
+    await session.execute(delete(Meeting).where(Meeting.project_id == project_id))
+    await session.execute(delete(Artifact).where(Artifact.project_id == project_id))
+    await session.execute(delete(Diagram).where(Diagram.project_id == project_id))
+    await session.execute(delete(Stakeholder).where(Stakeholder.project_id == project_id))
+    await session.execute(delete(Employee).where(Employee.project_id == project_id))
+    await session.execute(
+        delete(ProjectMembership).where(ProjectMembership.project_id == project_id)
+    )
+    # Keep audit history but detach it from the removed project.
+    await session.execute(
+        update(AuditLog).where(AuditLog.project_id == project_id).values(project_id=None)
+    )
+    await session.delete(project)
+    await session.commit()
 
 
 @router.get("/{project_id}/members", response_model=list[MemberOut])

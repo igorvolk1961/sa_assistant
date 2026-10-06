@@ -47,6 +47,9 @@ export function Shell({ children }: { children: ReactNode }) {
             </option>
           ))}
         </select>
+        <button onClick={() => navigate("/")} title="Страница проектов">
+          Проекты
+        </button>
         <div className="spacer" />
         <span className="muted">
           {user?.last_name} {user?.first_name}
