@@ -351,6 +351,17 @@ async def test_requirement_without_stakeholder_and_new_fields(client: AsyncClien
     assert after.json()["epic_id"] is None
 
 
+async def test_create_vacant_employee_with_blank_user_id(client: AsyncClient) -> None:
+    s = await _setup(client)
+    response = await client.post(
+        f"/projects/{s['project_id']}/employees",
+        json={"user_id": "", "last_name": "Пустой", "first_name": "Иван"},
+        headers=_auth(s["owner"]),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["user_id"] is None
+
+
 async def test_delete_project_cascades(client: AsyncClient, session) -> None:
     from sqlalchemy import func, select
 

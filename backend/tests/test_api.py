@@ -75,6 +75,25 @@ async def test_guest_cannot_create_project(client: AsyncClient) -> None:
     assert response.status_code == 403
 
 
+async def test_rename_project(client: AsyncClient) -> None:
+    owner = await _owner_token(client)
+    project_id = (
+        await client.post("/projects", json={"name": "Старое"}, headers=_auth(owner))
+    ).json()["id"]
+
+    renamed = await client.patch(
+        f"/projects/{project_id}", json={"name": "Новое"}, headers=_auth(owner)
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Новое"
+
+    guest = (await _register_and_login(client, f"guest_{_suffix()}"))["access_token"]
+    forbidden = await client.patch(
+        f"/projects/{project_id}", json={"name": "Хак"}, headers=_auth(guest)
+    )
+    assert forbidden.status_code == 403
+
+
 async def test_analyst_uniqueness_and_transfer(client: AsyncClient) -> None:
     owner = await _owner_token(client)
     project_id = (

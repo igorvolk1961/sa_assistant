@@ -139,6 +139,23 @@ textarea {
   border-color: #bbf7d0;
 }
 
+.chip-remove {
+  margin-left: 6px;
+  padding: 0 3px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.chip-remove:hover {
+  color: var(--text);
+  background: rgba(15, 23, 42, 0.08);
+}
+
 .badge.on_review {
   background: #fef3c7;
   border-color: #fde68a;

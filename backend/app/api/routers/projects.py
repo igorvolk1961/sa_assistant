@@ -30,6 +30,7 @@ from app.schemas.project import (
     MemberRolesUpdate,
     ProjectCreate,
     ProjectOut,
+    ProjectUpdate,
     TransferAnalystRequest,
 )
 from app.services.access import list_visible_projects
@@ -159,6 +160,39 @@ async def get_project(
     project, role = await get_project_role(session, user, project_id)
     if project.status != ProjectStatus.open and role != RoleCode.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Archive is admin-only")
+    return project
+
+
+@router.patch("/{project_id}", response_model=ProjectOut)
+async def update_project(
+    payload: ProjectUpdate,
+    ctx: tuple[Project, User, RoleCode] = Depends(require_project_role(RoleCode.admin)),
+    session: AsyncSession = Depends(get_session),
+) -> Project:
+    project, actor, _ = ctx
+    data = payload.model_dump(exclude_unset=True)
+    new_code = data.get("code")
+    if new_code and new_code != project.code:
+        clash = (
+            await session.execute(select(Project).where(Project.code == new_code))
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Project code already exists"
+            )
+    for field, value in data.items():
+        setattr(project, field, value)
+    await record(
+        session,
+        actor_user_id=actor.id,
+        action="project.update",
+        project_id=project.id,
+        entity_type="project",
+        entity_id=project.id,
+        after={k: v for k, v in data.items()},
+    )
+    await session.commit()
+    await session.refresh(project)
     return project
 
 

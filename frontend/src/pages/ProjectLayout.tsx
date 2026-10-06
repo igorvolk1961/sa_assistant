@@ -16,7 +16,7 @@ const TABS = [
   { to: "tasks", label: "Задачи" },
   { to: "requirements", label: "Требования" },
   { to: "meetings", label: "Встречи" },
-  { to: "employees", label: "Сотрудники" },
+  { to: "employees", label: "Должности" },
   { to: "stakeholders", label: "Стейкхолдеры" },
   { to: "members", label: "Участники" },
 ];

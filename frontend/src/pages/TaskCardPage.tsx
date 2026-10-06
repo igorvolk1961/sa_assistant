@@ -286,12 +286,12 @@ export function TaskCardPage() {
             return (
               <span key={a.id} className="badge">
                 {employee
-                  ? `${employee.last_name ?? ""} ${employee.first_name ?? ""}`
+                  ? employee.first_name ?? employee.last_name ?? a.employee_id
                   : a.employee_id}
-                {employee?.user_id === null && " (вакансия)"}
+                {employee?.user_id === null && " (вакантная должность)"}
                 <button
-                  className="danger"
-                  style={{ marginLeft: 8 }}
+                  className="chip-remove"
+                  title="Снять исполнителя"
                   onClick={() => run(() => api.del(`${base}/assignments/${a.employee_id}`))}
                 >
                   ×
@@ -308,8 +308,8 @@ export function TaskCardPage() {
             if (id) void run(() => api.post(`${base}/assignments`, { employee_id: id }));
           }}
           getLabel={(employee) =>
-            `${employee.last_name ?? ""} ${employee.first_name ?? ""}${
-              employee.user_id === null ? " (вакансия)" : ""
+            `${employee.first_name ?? employee.last_name ?? employee.id}${
+              employee.user_id === null ? " (вакантная должность)" : ""
             }`
           }
           reload={reloadEmployees}
@@ -329,8 +329,8 @@ export function TaskCardPage() {
             <span key={dep.id} className="badge">
               ← #{dep.number} {dep.short_description}
               <button
-                className="danger"
-                style={{ marginLeft: 8 }}
+                className="chip-remove"
+                title="Удалить зависимость"
                 onClick={() => run(() => api.del(`${base}/dependencies/${dep.id}`))}
               >
                 ×

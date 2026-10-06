@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ORMModel(BaseModel):
@@ -12,6 +12,11 @@ class EmployeeCreate(BaseModel):
     last_name: str | None = Field(default=None, max_length=100)
     first_name: str | None = Field(default=None, max_length=100)
     middle_name: str | None = Field(default=None, max_length=100)
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _blank_user_id(cls, value: object) -> object:
+        return None if value == "" else value
 
 
 class EmployeeOut(ORMModel):
@@ -26,6 +31,11 @@ class EmployeeOut(ORMModel):
 class LinkUserRequest(BaseModel):
     user_id: uuid.UUID | None = None
 
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _blank_user_id(cls, value: object) -> object:
+        return None if value == "" else value
+
 
 class PositionAssignment(BaseModel):
     position_id: uuid.UUID
@@ -39,6 +49,11 @@ class StakeholderCreate(BaseModel):
     middle_name: str | None = Field(default=None, max_length=100)
     organization: str | None = Field(default=None, max_length=200)
     notes: str | None = None
+
+    @field_validator("user_id", mode="before")
+    @classmethod
+    def _blank_user_id(cls, value: object) -> object:
+        return None if value == "" else value
 
 
 class StakeholderOut(ORMModel):

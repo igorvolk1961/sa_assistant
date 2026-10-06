@@ -93,10 +93,10 @@ async def create_employee(
         if user is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
         return await _get_or_create_employee(session, project.id, user, actor.id)
-    if not payload.last_name or not payload.first_name:
+    if not payload.first_name and not payload.last_name:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="Vacant employee requires last_name and first_name",
+            detail="Vacant position requires a name",
         )
     employee = Employee(
         project_id=project.id,

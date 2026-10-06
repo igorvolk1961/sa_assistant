@@ -37,6 +37,19 @@ export function ProjectsPage() {
     navigate(`/projects/${project.id}/tasks`);
   }
 
+  async function rename(project: Project) {
+    const name = window.prompt("Новое название проекта", project.name);
+    if (!name || name === project.name) return;
+    setError(null);
+    try {
+      const updated = await api.patch<Project>(`/projects/${project.id}`, { name });
+      if (currentProjectId === project.id) setCurrentProject(updated);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Ошибка");
+    }
+  }
+
   async function remove(project: Project) {
     if (!window.confirm(`Удалить проект «${project.name}» со всем содержимым?`)) return;
     setError(null);
@@ -80,6 +93,7 @@ export function ProjectsPage() {
               <button className="primary" onClick={() => open(project)}>
                 Открыть
               </button>
+              <button onClick={() => void rename(project)}>Переименовать</button>
               <button className="danger" onClick={() => void remove(project)}>
                 Удалить
               </button>

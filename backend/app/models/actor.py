@@ -9,7 +9,7 @@ from app.db.base import Base
 
 
 class Employee(Base):
-    """Сотрудник проекта. user_id IS NULL => вакантная должность."""
+    """Сотрудник проекта. user_id IS NULL => вакантный тип должности."""
 
     __tablename__ = "employees"
     __table_args__ = (

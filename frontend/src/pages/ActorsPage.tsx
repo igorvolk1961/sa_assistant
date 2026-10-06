@@ -12,7 +12,7 @@ export function ActorsPage() {
   const [stakeholders, setStakeholders] = useState<Stakeholder[]>([]);
   const [positions, setPositions] = useState<Position[]>([]);
   const [employeePositions, setEmployeePositions] = useState<Record<string, string[]>>({});
-  const [employeeForm, setEmployeeForm] = useState({ user_id: "", last_name: "", first_name: "" });
+  const [employeeForm, setEmployeeForm] = useState({ user_id: "", first_name: "" });
   const [stakeholderForm, setStakeholderForm] = useState({
     position_id: "",
     organization: "",
@@ -57,7 +57,7 @@ export function ActorsPage() {
 
   return (
     <>
-      <h3>{isStakeholders ? "Стейкхолдеры" : "Сотрудники"}</h3>
+      <h3>{isStakeholders ? "Стейкхолдеры" : "Должности"}</h3>
       {error && <div className="error">{error}</div>}
 
       {isStakeholders ? (
@@ -149,23 +149,45 @@ export function ActorsPage() {
           <table>
             <thead>
               <tr>
-                <th>Имя</th>
-                <th>Должности</th>
+                <th>Название</th>
+                <th>Типы должностей</th>
                 <th>Статус</th>
-                <th>Добавить должность</th>
+                <th>Добавить тип должности</th>
               </tr>
             </thead>
             <tbody>
               {employees.map((employee) => (
                 <tr key={employee.id}>
                   <td>
-                    {[employee.last_name, employee.first_name].filter(Boolean).join(" ") || "—"}
+                    {employee.first_name ?? employee.last_name ?? "—"}
                   </td>
                   <td>
-                    {(employeePositions[employee.id] ?? [])
-                      .map((id) => positions.find((p) => p.id === id)?.name)
-                      .filter(Boolean)
-                      .join(", ") || "—"}
+                    <div className="row" style={{ gap: 4 }}>
+                      {(employeePositions[employee.id] ?? []).map((positionId) => {
+                        const position = positions.find((p) => p.id === positionId);
+                        return (
+                          <span key={positionId} className="badge">
+                            {position?.name ?? positionId}
+                            <button
+                              className="chip-remove"
+                              title="Удалить тип должности"
+                              onClick={() =>
+                                void run(() =>
+                                  api.del(
+                                    `/projects/${project.id}/employees/${employee.id}/positions/${positionId}`,
+                                  ),
+                                )
+                              }
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                      {(employeePositions[employee.id] ?? []).length === 0 && (
+                        <span className="muted">—</span>
+                      )}
+                    </div>
                   </td>
                   <td>
                     {employee.user_id ? (
@@ -207,13 +229,16 @@ export function ActorsPage() {
             </tbody>
           </table>
           <div className="card" style={{ marginTop: 16 }}>
-            <h3>Новый сотрудник</h3>
+            <h3>Новая должность</h3>
             <form
               className="row"
               onSubmit={(e) => {
                 e.preventDefault();
-                void run(() => api.post(`/projects/${project.id}/employees`, employeeForm));
-                setEmployeeForm({ user_id: "", last_name: "", first_name: "" });
+                const payload = employeeForm.user_id
+                  ? employeeForm
+                  : { first_name: employeeForm.first_name };
+                void run(() => api.post(`/projects/${project.id}/employees`, payload));
+                setEmployeeForm({ user_id: "", first_name: "" });
               }}
             >
               <input
@@ -222,12 +247,7 @@ export function ActorsPage() {
                 onChange={(e) => setEmployeeForm({ ...employeeForm, user_id: e.target.value })}
               />
               <input
-                placeholder="Фамилия (для вакансии)"
-                value={employeeForm.last_name}
-                onChange={(e) => setEmployeeForm({ ...employeeForm, last_name: e.target.value })}
-              />
-              <input
-                placeholder="Имя (для вакансии)"
+                placeholder="Название"
                 value={employeeForm.first_name}
                 onChange={(e) => setEmployeeForm({ ...employeeForm, first_name: e.target.value })}
               />

@@ -9,7 +9,7 @@ interface Props {
 
 export function NewEmployeeForm({ project, onCreated }: Props) {
   const [mode, setMode] = useState<"vacant" | "user">("vacant");
-  const [values, setValues] = useState({ user_id: "", last_name: "", first_name: "" });
+  const [values, setValues] = useState({ user_id: "", first_name: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,11 +23,11 @@ export function NewEmployeeForm({ project, onCreated }: Props) {
       }
       payload = { user_id: values.user_id };
     } else {
-      if (!values.last_name || !values.first_name) {
-        setError("Укажите фамилию и имя");
+      if (!values.first_name) {
+        setError("Укажите название");
         return;
       }
-      payload = { last_name: values.last_name, first_name: values.first_name };
+      payload = { first_name: values.first_name };
     }
     setBusy(true);
     try {
@@ -50,7 +50,7 @@ export function NewEmployeeForm({ project, onCreated }: Props) {
             checked={mode === "vacant"}
             onChange={() => setMode("vacant")}
           />
-          Вакантная должность
+          Вакантный тип должности
         </label>
         <label className="row" style={{ gap: 4 }}>
           <input
@@ -69,22 +69,15 @@ export function NewEmployeeForm({ project, onCreated }: Props) {
           onChange={(e) => setValues({ ...values, user_id: e.target.value })}
         />
       ) : (
-        <>
-          <input
-            placeholder="Фамилия"
-            value={values.last_name}
-            onChange={(e) => setValues({ ...values, last_name: e.target.value })}
-          />
-          <input
-            placeholder="Имя"
-            value={values.first_name}
-            onChange={(e) => setValues({ ...values, first_name: e.target.value })}
-          />
-        </>
+        <input
+          placeholder="Название"
+          value={values.first_name}
+          onChange={(e) => setValues({ ...values, first_name: e.target.value })}
+        />
       )}
       {error && <div className="error">{error}</div>}
       <button type="button" className="primary" disabled={busy} onClick={() => void submit()}>
-        Создать исполнителя
+        Создать должность
       </button>
     </div>
   );
